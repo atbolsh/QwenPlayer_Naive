@@ -26,7 +26,7 @@ from .qwen_encoders import Qwen3_BastardEncoder, Qwen3_BastardDecoder
 class QwenBastardBrain(
     nn.Module,
     PyTorchModelHubMixin,
-    repo_url="https://huggingface.co/qwen-bastard-brain",
+    repo_url="qwen-bastard-brain",
     pipeline_tag="multimodal",
     license="mit",
 ):
