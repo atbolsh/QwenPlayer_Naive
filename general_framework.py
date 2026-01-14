@@ -1,91 +1,192 @@
 # This file should have all the code shared between all (or most) of the tasks
 # should have all the torch libraries I need
-from visual_transformer import *
-from visual_transformer.enhanced_model import *
+# Updated for QwenBastardBrain with Qwen tokenizer and ProcessBench dataset
+
+import json
 import random
+from pathlib import Path
+
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset
+
+from visual_transformer import *
+from visual_transformer.qwen_player import QwenBastardBrain
+
+from transformers import AutoTokenizer
+from datasets import load_dataset
+
+from game import *
 
 #device = torch.device('cuda:0') # CHANGE THIS EVERY TIME
 device = torch.device('cuda:1') # CHANGE THIS EVERY TIME
 
-from game import *
+########
+# Game setup
+########
 
 game_settings = BIG_tool_use_advanced_2_5
 game_settings.gameSize = 224 # for compatibility with brain's expected size
 G = discreteGame(game_settings)
 
 ########
+# Qwen Tokenizer setup
+########
 
-vocab_size = 10000
-# tokenizer.save_model(".", "tokenizer/eng_sentences_tokenizer_vc10000")
-tokenizer = ByteLevelBPETokenizer(
-    "./text_pretraining_tokenizer/eng_sentences_tokenizer_vc10000_v2-vocab.json",
-    "./text_pretraining_tokenizer/eng_sentences_tokenizer_vc10000_v2-merges.txt",
-)   
-tokenizer._tokenizer.post_processor = BertProcessing(
-    ("</s>", tokenizer.token_to_id("</s>")),
-    ("<s>", tokenizer.token_to_id("<s>")),
-)
-tokenizer.enable_truncation(max_length=32)
-tokenizer.enable_padding()
+vocab_size = 151936  # Qwen vocab size
+model_name = "Qwen/Qwen3-0.6B"
 
-# to override default behavior: make sure you always set 'skip_special_tokens' to false when using decoder
-tokenizer.add_special_tokens(['<forward>', '<clock>', '<anticlock>'])
+# Load the Qwen tokenizer
+tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-## Dataset
-class SampleDataset(Dataset):
-    def __init__(self, seq_length = 32, evaluate: bool = False, tokenizer=None, device = None):
+# Special tokens for game controls
+# Note: Qwen tokenizer handles special tokens differently than ByteLevelBPE
+# We add custom tokens for game control
+SPECIAL_TOKENS = ['<forward>', '<clock>', '<anticlock>']
+tokenizer.add_special_tokens({'additional_special_tokens': SPECIAL_TOKENS})
+
+# Max sequence length for text
+MAX_SEQ_LENGTH = 32
+
+def encode_text(text, max_length=MAX_SEQ_LENGTH):
+    """Encode text using Qwen tokenizer, returns tensor of token ids."""
+    encoded = tokenizer(
+        text,
+        padding='max_length',
+        truncation=True,
+        max_length=max_length,
+        return_tensors='pt'
+    )
+    return encoded['input_ids'].squeeze(0)
+
+def encode_batch(text_list, max_length=MAX_SEQ_LENGTH):
+    """Encode a batch of texts using Qwen tokenizer."""
+    encoded = tokenizer(
+        text_list,
+        padding='max_length',
+        truncation=True,
+        max_length=max_length,
+        return_tensors='pt'
+    )
+    return encoded['input_ids']
+
+def decode_text(token_ids, skip_special_tokens=False):
+    """Decode token ids back to text."""
+    return tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
+
+def decode_batch(token_ids_batch, skip_special_tokens=False):
+    """Decode a batch of token ids back to text."""
+    return tokenizer.batch_decode(token_ids_batch, skip_special_tokens=skip_special_tokens)
+
+########
+# Dataset - using Qwen's ProcessBench
+########
+
+class ProcessBenchDataset(Dataset):
+    """Dataset based on Qwen's ProcessBench for training."""
+    def __init__(self, split='gsm8k', seq_length=MAX_SEQ_LENGTH, device=None):
         if device is None:
             device = 'cpu'
         self.device = device
         self.seq_length = seq_length
-        if tokenizer is None:
-            tokenizer = ByteLevelBPETokenizer(
-                "./text_pretraining_tokenizer/eng_sentences_tokenizer_vc10000_v2-vocab.json",
-                "./text_pretraining_tokenizer/eng_sentences_tokenizer_vc10000_v2-merges.txt",
-            )   
-        tokenizer._tokenizer.post_processor = BertProcessing(
-            ("</s>", tokenizer.token_to_id("</s>")),
-            ("<s>", tokenizer.token_to_id("<s>")),
-        )   
-        tokenizer.enable_truncation(max_length=self.seq_length)
-        tokenizer.enable_padding()#length=seq_length)
-        # or use the RobertaTokenizer from `transformers` directly.
-        tokenizer.add_special_tokens(['<forward>', '<clock>', '<anticlock>'])
-
+        
+        # Load ProcessBench dataset
+        self.dataset = load_dataset('Qwen/ProcessBench', split=split)
+        
+        # Pre-tokenize all examples
         self.examples = []
+        for item in self.dataset:
+            # ProcessBench has various fields - we'll use the main text content
+            # Adjust field access based on actual dataset structure
+            if 'problem' in item:
+                text = item['problem']
+            elif 'question' in item:
+                text = item['question']
+            elif 'text' in item:
+                text = item['text']
+            else:
+                # Fallback: convert the whole item to string
+                text = str(item)
+            
+            encoded = tokenizer(
+                text,
+                padding='max_length',
+                truncation=True,
+                max_length=self.seq_length,
+                return_tensors='pt'
+            )
+            self.examples.append(encoded['input_ids'].squeeze(0))
+    
+    def __len__(self):
+        return len(self.examples)
+    
+    def __getitem__(self, i):
+        return self.examples[i].to(self.device)
 
+
+class SampleDataset(Dataset):
+    """Legacy dataset for local text files, updated for Qwen tokenizer."""
+    def __init__(self, seq_length=MAX_SEQ_LENGTH, evaluate=False, device=None):
+        if device is None:
+            device = 'cpu'
+        self.device = device
+        self.seq_length = seq_length
+        
+        self.examples = []
+        
         src_files = Path("./text_pretraining_data/").glob("*-eval.txt") if evaluate else Path("./text_pretraining_data/").glob("*-train.txt")
         for src_file in src_files:
             print("🔥", src_file)
             lines = src_file.read_text(encoding="utf-8").splitlines()
-            self.examples += [x.ids for x in tokenizer.encode_batch(lines)]
-
+            for line in lines:
+                if line.strip():  # Skip empty lines
+                    encoded = tokenizer(
+                        line,
+                        padding='max_length',
+                        truncation=True,
+                        max_length=self.seq_length,
+                        return_tensors='pt'
+                    )
+                    self.examples.append(encoded['input_ids'].squeeze(0))
+    
     def __len__(self):
         return len(self.examples)
+    
+    def __getitem__(self, i):
+        return self.examples[i].to(self.device)
 
-    def __getitem__(self, i): 
-        # We’ll pad at the batch level.
-        return torch.tensor(self.examples[i]).to(self.device)
 
-sdt = SampleDataset(tokenizer=tokenizer)
-sdv = SampleDataset(tokenizer=tokenizer, evaluate=True)
+# Default datasets - use ProcessBench as primary
+try:
+    sdt = ProcessBenchDataset(split='gsm8k', device='cpu')
+    sdv = ProcessBenchDataset(split='gsm8k', device='cpu')  # Same split for now; adjust as needed
+    print(f"Loaded ProcessBench dataset with {len(sdt)} examples")
+except Exception as e:
+    print(f"Warning: Could not load ProcessBench dataset: {e}")
+    print("Falling back to local SampleDataset")
+    sdt = SampleDataset()
+    sdv = SampleDataset(evaluate=True)
+
 num_controls = len(sdt)
 
-ent_criterion = nn.CrossEntropyLoss(ignore_index=0)
+########
+# Loss functions
+########
+
+ent_criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0)
 
 def get_text_loss(res, inputs):
+    """Compute cross-entropy loss for text prediction."""
     return torch.sum(ent_criterion(res[:, :, :-1], inputs[:, 1:]))
-
-########
 
 img_criterion = nn.MSELoss()
 
 ########
+# Game utilities
+########
 
 def get_settings_batch(batch_size):
     return [G.random_bare_settings(gameSize=224, max_agent_offset=0.5) for i in range(batch_size)]
-
-########
 
 def get_images(settings_batch, device=device, ignore_agent=False, ignore_gold=False, ignore_walls=False):
     batch_size = len(settings_batch)
@@ -98,5 +199,3 @@ def get_images(settings_batch, device=device, ignore_agent=False, ignore_gold=Fa
         img[i] = torch.tensor(G2.getData())
     img = torch.permute(img, (0, 3, 1, 2)).contiguous().to(device)
     return img
-
-

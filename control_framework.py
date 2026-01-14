@@ -46,13 +46,13 @@ def _control_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
         loss.backward()#retain_graph=True)
         optimizer.step()
         optimizer.zero_grad()
-        if type(model) is EnhancedAgentBrain:
+        if type(model) is QwenBastardBrain:
             model.soft_reset()
 
     if printing:
         print(f"Total recon loss: {loss.item()}; that's {text_loss.item()} text and {img_loss.item()} img\n\n")
 
-    if reset_model and (type(model) is EnhancedAgentBrain):
+    if reset_model and (type(model) is QwenBastardBrain):
         model.reset()
 
     return loss.item(), text_loss.item(), img_loss.item()
@@ -67,4 +67,3 @@ def control_batch(batch_size, model, optimizer=None, batch_num=0, compute_grad=F
             raise ValueError("If training is True, compute_grad must also be True")
         with torch.no_grad():
             return _control_batch(batch_size, model, optimizer, batch_num, random_order, model_eval, reset_model, printing, training)
-
