@@ -1,8 +1,12 @@
 """Demo: Image processing with QwenBastardBrain's img_autoencoder"""
 
+import os
 import torch
 import matplotlib.pyplot as plt
 from general_framework import model, device, get_images, get_settings_batch
+
+# Create output directory
+os.makedirs("demo_images", exist_ok=True)
 
 # Model comes from general_framework.py (already initialized)
 model.eval()
@@ -41,7 +45,7 @@ try:
         axes[1, i].axis('off')
     
     plt.tight_layout()
-    plt.savefig("image_demo_output.png")
-    print("Saved visualization to image_demo_output.png")
+    plt.savefig("demo_images/image_demo_output.png")
+    print("Saved visualization to demo_images/image_demo_output.png")
 except Exception as e:
     print(f"Visualization skipped: {e}")

@@ -18,8 +18,8 @@ from datasets import load_dataset
 
 from game import *
 
-#device = torch.device('cuda:0') # CHANGE THIS EVERY TIME
-device = torch.device('cuda:1') # CHANGE THIS EVERY TIME
+device = torch.device('cuda:0') # CHANGE THIS EVERY TIME
+#device = torch.device('cuda:1') # CHANGE THIS EVERY TIME
 
 ########
 # Model initialization from Qwen source

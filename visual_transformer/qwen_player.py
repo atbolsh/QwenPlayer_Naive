@@ -37,8 +37,8 @@ class QwenBastardBrain(
         embed_dim = 1024
         
         # Image encoder/decoder with 1024 dim
-        self.img_enc = ImageTransformerEncoder(embed_dim=embed_dim)
-        self.img_dec = ImageTransformerDecoder(embed_dim=embed_dim)
+        self.img_enc = ImageTransformerEncoder(embed_dim=embed_dim, num_heads=8)
+        self.img_dec = ImageTransformerDecoder(embed_dim=embed_dim, num_heads=8)
         self.img_weight = VisionWeightedSum(embed_dim=embed_dim)
 
         # Qwen-based text encoder/decoder (1024 dim, bfloat16)
@@ -49,7 +49,7 @@ class QwenBastardBrain(
         self.vocab_size = vocab_size
 
         # Dopamine for RL - 1024 dim
-        self.dopamine = DopamineWrapper(embed_dim=embed_dim)
+        self.dopamine = DopamineWrapper(embed_dim=embed_dim, num_heads=4)
 
         # 7 inputs at 1024 dim: 3 img canvases, 1 img input, memory, dopamine, text input
         self.context_tagging = nn.Parameter(torch.empty((7, 1, embed_dim)))
@@ -57,7 +57,7 @@ class QwenBastardBrain(
 
         # Memory processing with 1024 dim
         self.memory = Memory(mem_size, new_tokens, vector_dim=embed_dim)
-        self.mem_enc = MemoryEncoder(new_tokens=new_tokens, embed_dim=embed_dim)
+        self.mem_enc = MemoryEncoder(new_tokens=new_tokens, embed_dim=embed_dim, num_heads=8)
 
         # Store embed_dim for reference
         self.embed_dim = embed_dim
