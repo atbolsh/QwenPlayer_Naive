@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-from general_framework import QwenBastardBrain, device, get_images, get_settings_batch
+from general_framework import model, device, get_images, get_settings_batch
 
 # Hyperparameters
 BATCH_SIZE = 8
@@ -10,8 +10,7 @@ LEARNING_RATE = 1e-4
 NUM_STEPS = 100
 PRINT_EVERY = 10
 
-# Load model
-model = QwenBastardBrain().to(device)
+# Model comes from general_framework.py (already initialized)
 model.train()
 
 # Optimizer and loss (L2 = MSE)
@@ -49,4 +48,3 @@ with torch.no_grad():
     test_recon = model.img_autoencoder(test_imgs)
     test_loss = criterion(test_recon, test_imgs)
     print(f"Final eval MSE: {test_loss.item():.4f}")
-

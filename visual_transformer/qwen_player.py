@@ -65,6 +65,16 @@ class QwenBastardBrain(
         # set image canvases and None for self.context
         self.reset()
 
+    def strip_source_model(self, source_model):
+        """Initialize text_enc and text_dec from a full Qwen model.
+        
+        Args:
+            source_model: A full Qwen3 model (e.g., from AutoModelForCausalLM.from_pretrained)
+        """
+        self.text_enc.strip_source_model(source_model)
+        self.text_dec.strip_source_model(source_model)
+        return self
+
     def reset(self):
         # note this may create orphaned tensors and memory leaks down the line.
         self.canvases = VisionCanvases(3)

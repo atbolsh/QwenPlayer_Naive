@@ -13,13 +13,43 @@ from torch.utils.data import Dataset
 from visual_transformer import *
 from visual_transformer.qwen_player import QwenBastardBrain
 
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 
 from game import *
 
 #device = torch.device('cuda:0') # CHANGE THIS EVERY TIME
 device = torch.device('cuda:1') # CHANGE THIS EVERY TIME
+
+########
+# Model initialization from Qwen source
+# Comment out this block when loading model from disk instead
+########
+
+# --- BEGIN MODEL INIT FROM QWEN ---
+print("Loading Qwen/Qwen3-0.6B source model...")
+_qwen_source = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen3-0.6B",
+    torch_dtype=torch.bfloat16
+).to(device)
+
+print("Creating QwenBastardBrain and stripping source model...")
+model = QwenBastardBrain()
+model.strip_source_model(_qwen_source)
+model = model.to(device)
+
+# Free the source model memory
+del _qwen_source
+torch.cuda.empty_cache()
+print("Model ready!")
+# --- END MODEL INIT FROM QWEN ---
+
+# Alternative: Load from disk (uncomment when needed)
+# model = QwenBastardBrain.from_pretrained("path/to/saved/model").to(device)
+# --- or ---
+# model = QwenBastardBrain()
+# model.load_state_dict(torch.load("brain_checkpoints/model.pt"))
+# model = model.to(device)
 
 ########
 # Game setup

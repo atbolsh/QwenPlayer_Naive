@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-from general_framework import QwenBastardBrain, device, sdt, tokenizer
+from general_framework import model, device, sdt, tokenizer
 
 # Hyperparameters
 BATCH_SIZE = 8
@@ -10,8 +10,7 @@ LEARNING_RATE = 1e-4
 NUM_STEPS = 100
 PRINT_EVERY = 10
 
-# Load model
-model = QwenBastardBrain().to(device)
+# Model comes from general_framework.py (already initialized)
 model.train()
 
 # Optimizer and loss
@@ -49,4 +48,3 @@ with torch.no_grad():
     logits = model.sentence_autoencoder(test_batch, return_full=True, use_masks=True)
     test_loss = criterion(logits[:, :, :-1], test_batch[:, 1:])
     print(f"Final eval loss: {test_loss.item():.4f}")
-

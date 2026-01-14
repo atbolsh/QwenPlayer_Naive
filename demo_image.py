@@ -2,10 +2,9 @@
 
 import torch
 import matplotlib.pyplot as plt
-from general_framework import QwenBastardBrain, device, G, get_images, get_settings_batch
+from general_framework import model, device, get_images, get_settings_batch
 
-# Load model
-model = QwenBastardBrain().to(device)
+# Model comes from general_framework.py (already initialized)
 model.eval()
 
 # Generate game images
@@ -46,4 +45,3 @@ try:
     print("Saved visualization to image_demo_output.png")
 except Exception as e:
     print(f"Visualization skipped: {e}")
-

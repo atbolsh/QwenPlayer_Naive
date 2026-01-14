@@ -1,13 +1,9 @@
 """Demo: Text processing with QwenBastardBrain's sentence_autoencoder"""
 
 import torch
-from general_framework import (
-    QwenBastardBrain, device, tokenizer, sdt,
-    encode_text, decode_text
-)
+from general_framework import model, device, tokenizer, sdt, decode_text
 
-# Load model
-model = QwenBastardBrain().to(device)
+# Model comes from general_framework.py (already initialized)
 model.eval()
 
 # Get a batch from ProcessBench dataset
@@ -34,4 +30,3 @@ print("\n=== Token Accuracy ===")
 for i in range(batch_size):
     matches = (predictions[i] == text_batch[i]).float().mean()
     print(f"Sample {i}: {matches.item()*100:.1f}% tokens match")
-
