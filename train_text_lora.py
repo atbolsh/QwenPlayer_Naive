@@ -3,7 +3,7 @@
 import os
 import torch
 import torch.nn as nn
-from peft import LoraConfig, get_peft_model, TaskType
+from peft import LoraConfig, get_peft_model
 
 from general_framework import model, device, sdt, tokenizer
 
@@ -17,14 +17,13 @@ LEARNING_RATE = 1e-4
 NUM_STEPS = 100
 PRINT_EVERY = 10
 
-# LoRA config
+# LoRA config (no task_type since QwenBastardBrain is a custom model)
 lora_config = LoraConfig(
     r=4, lora_alpha=16, lora_dropout=0.1, bias="none",
     target_modules=[
         "q_proj", "k_proj", "v_proj", "o_proj",
         "gate_proj", "up_proj", "down_proj"
     ],
-    task_type=TaskType.CAUSAL_LM
 )
 
 # Wrap model with LoRA
