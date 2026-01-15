@@ -1,8 +1,13 @@
 """Train: Text autoencoder using sentence_autoencoder + CrossEntropyLoss"""
 
+import os
 import torch
 import torch.nn as nn
 from general_framework import model, device, sdt, tokenizer
+
+# Checkpoint directory
+CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
 # Hyperparameters
 BATCH_SIZE = 8
@@ -48,3 +53,8 @@ with torch.no_grad():
     logits = model.sentence_autoencoder(test_batch, return_full=True, use_masks=True)
     test_loss = criterion(logits[:, :, :-1], test_batch[:, 1:])
     print(f"Final eval loss: {test_loss.item():.4f}")
+
+# Save checkpoint
+checkpoint_path = os.path.join(CHECKPOINT_DIR, "text_autoencoder_checkpoint.pt")
+torch.save(model.state_dict(), checkpoint_path)
+print(f"Model checkpoint saved to {checkpoint_path}")

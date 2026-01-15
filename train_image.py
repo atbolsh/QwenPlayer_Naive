@@ -1,8 +1,13 @@
 """Train: Image autoencoder using img_autoencoder + L2 (MSE) Loss"""
 
+import os
 import torch
 import torch.nn as nn
 from general_framework import model, device, get_images, get_settings_batch
+
+# Checkpoint directory
+CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
 # Hyperparameters
 BATCH_SIZE = 8
@@ -48,3 +53,8 @@ with torch.no_grad():
     test_recon = model.img_autoencoder(test_imgs)
     test_loss = criterion(test_recon, test_imgs)
     print(f"Final eval MSE: {test_loss.item():.4f}")
+
+# Save checkpoint
+checkpoint_path = os.path.join(CHECKPOINT_DIR, "image_autoencoder_checkpoint.pt")
+torch.save(model.state_dict(), checkpoint_path)
+print(f"Model checkpoint saved to {checkpoint_path}")

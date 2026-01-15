@@ -44,11 +44,10 @@ torch.cuda.empty_cache()
 print("Model ready!")
 # --- END MODEL INIT FROM QWEN ---
 
-# Alternative: Load from disk (uncomment when needed)
-# model = QwenBastardBrain.from_pretrained("path/to/saved/model").to(device)
-# --- or ---
+# Alternative: Load from brain checkpoint (uncomment when needed)
+# CHECKPOINT_NAME = "text_autoencoder_checkpoint.pt"  # or "image_autoencoder_checkpoint.pt"
 # model = QwenBastardBrain()
-# model.load_state_dict(torch.load("brain_checkpoints/model.pt"))
+# model.load_state_dict(torch.load(f"brain_checkpoints/{CHECKPOINT_NAME}"))
 # model = model.to(device)
 
 ########
