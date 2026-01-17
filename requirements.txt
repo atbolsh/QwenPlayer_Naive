@@ -1,0 +1,23 @@
+# Core deep learning
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Hugging Face ecosystem
+transformers>=4.40.0
+datasets>=2.18.0
+huggingface_hub>=0.21.0
+tokenizers>=0.15.0
+safetensors>=0.4.0
+accelerate>=0.27.0
+
+# Parameter-efficient fine-tuning
+peft>=0.10.0
+
+# Game engine and graphics
+pygame>=2.5.0
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# Environment and utilities
+python-dotenv>=1.0.0
+

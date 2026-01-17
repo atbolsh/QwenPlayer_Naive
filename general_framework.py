@@ -214,10 +214,19 @@ img_criterion = nn.MSELoss()
 # Game utilities
 ########
 
-def get_settings_batch(batch_size):
-    return [G.random_bare_settings(gameSize=224, max_agent_offset=0.5) for i in range(batch_size)]
+def get_settings_batch(batch_size, bare=True, restrict_angles=True):
+    if bare:
+        return [G.random_bare_settings(gameSize=224, max_agent_offset=0.5) for i in range(batch_size)]
+    else:
+        return [G.random_settings(gameSize=224, restrict_angles=restrict_angles) for i in range(batch_size)]
 
-def get_images(settings_batch, device=device, ignore_agent=False, ignore_gold=False, ignore_walls=False):
+def get_images(settings_batch=None, device=device, ignore_agent=False, ignore_gold=False, ignore_walls=False, batch_size=None, bare=True, restrict_angles=True):
+    # If no settings provided, generate them using bare/restrict_angles flags
+    if settings_batch is None:
+        if batch_size is None:
+            raise ValueError("Must provide either settings_batch or batch_size")
+        settings_batch = get_settings_batch(batch_size, bare=bare, restrict_angles=restrict_angles)
+    
     batch_size = len(settings_batch)
     img = torch.zeros(batch_size, 224, 224, 3)
     should_draw = (ignore_agent or ignore_gold or ignore_walls)
