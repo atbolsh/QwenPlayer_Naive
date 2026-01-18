@@ -11,7 +11,7 @@ os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
 # Hyperparameters
 BATCH_SIZE = 8
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-5
 NUM_STEPS = 100
 PRINT_EVERY = 10
 
