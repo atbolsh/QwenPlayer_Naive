@@ -20,9 +20,10 @@ os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(DEMO_DIR, exist_ok=True)
 
 # Hyperparameters
-BATCH_SIZE = 8
+# Currently optimized for H100 with 96Gb in VRAM
+BATCH_SIZE = 550
 LEARNING_RATE = 1e-5
-NUM_STEPS = 100000
+NUM_STEPS = 10000000
 PRINT_EVERY = 100
 SAVE_EVERY = 1000
 
@@ -93,7 +94,7 @@ for step in range(NUM_STEPS):
     loss.backward()
     optimizer.step()
     
-    if (step + 1) % PRINT_EVERY == 0:
+    if ((step + 1) % PRINT_EVERY == 0) or (step < 10):
         loss_val = loss.item()
         print(f"Step {step+1}/{NUM_STEPS} | MSE Loss: {loss_val:.6f}")
         
