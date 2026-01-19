@@ -1,6 +1,7 @@
 # Core deep learning
 torch>=2.0.0
 torchvision>=0.15.0
+einops>=0.7.0
 
 # Hugging Face ecosystem
 transformers>=4.40.0
