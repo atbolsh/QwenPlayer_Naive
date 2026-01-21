@@ -15,7 +15,8 @@ from general_framework_lightweight import get_images, get_settings_batch, device
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
 DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
-LEDGER_PATH = os.path.join(os.path.dirname(__file__), "naked_ledger_losses.csv")
+LEDGER_PATH = os.path.join(os.path.dirname(__file__), "naked_ledger_losses_v2.csv")
+LOAD_CHECKPOINT = os.path.join(os.path.dirname(__file__), "brain_checkpoints/naked_image_step_052000.pt")
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(DEMO_DIR, exist_ok=True)
 
@@ -49,12 +50,12 @@ def save_demo_image(model, step, device):
     """Save a single input-output pair."""
     model.eval()
     with torch.no_grad():
-        settings = get_settings_batch(1)
+        settings = get_settings_batch(1, bare=False, restrict_angles=True)
         img = get_images(settings, device=device)
         recon = model(img)
         
-        input_path = os.path.join(DEMO_DIR, f"naked_step_{step:06d}_input.png")
-        output_path = os.path.join(DEMO_DIR, f"naked_step_{step:06d}_output.png")
+        input_path = os.path.join(DEMO_DIR, f"naked_step_{step:06d}_v2_input.png")
+        output_path = os.path.join(DEMO_DIR, f"naked_step_{step:06d}_v2_output.png")
         save_image(img[0], input_path)
         save_image(recon[0].clamp(0, 1), output_path)
     model.train()
@@ -68,6 +69,12 @@ with open(LEDGER_PATH, 'w', newline='') as f:
 # Initialize model
 print("Initializing NakedImageAutoencoder...")
 model = NakedImageAutoencoder(embed_dim=1024, num_heads=8).to(device)
+
+# Load from checkpoint
+print(f"Loading checkpoint from {LOAD_CHECKPOINT}...")
+model.load_state_dict(torch.load(LOAD_CHECKPOINT, map_location=device))
+print("Checkpoint loaded!")
+
 model.train()
 
 # Optimizer and loss
@@ -80,7 +87,7 @@ print(f"Losses logged to {LEDGER_PATH}")
 
 for step in range(NUM_STEPS):
     # Generate game images
-    settings = get_settings_batch(BATCH_SIZE)
+    settings = get_settings_batch(BATCH_SIZE, bare=False, restrict_angles=True)
     img_batch = get_images(settings, device=device)
     
     # Forward
@@ -105,7 +112,7 @@ for step in range(NUM_STEPS):
     
     # Save checkpoint and demo image every SAVE_EVERY steps
     if (step + 1) % SAVE_EVERY == 0:
-        checkpoint_path = os.path.join(CHECKPOINT_DIR, f"naked_image_step_{step+1:06d}.pt")
+        checkpoint_path = os.path.join(CHECKPOINT_DIR, f"naked_image_step_{step+1:06d}_v2.pt")
         torch.save(model.state_dict(), checkpoint_path)
         print(f"Checkpoint saved: {checkpoint_path}")
         
@@ -117,13 +124,13 @@ print("Training complete!")
 # Final eval
 model.eval()
 with torch.no_grad():
-    test_settings = get_settings_batch(4)
+    test_settings = get_settings_batch(4, bare=False, restrict_angles=True)
     test_imgs = get_images(test_settings, device=device)
     test_recon = model(test_imgs)
     test_loss = criterion(test_recon, test_imgs)
     print(f"Final eval MSE: {test_loss.item():.6f}")
 
 # Save final checkpoint
-final_path = os.path.join(CHECKPOINT_DIR, "naked_image_final.pt")
+final_path = os.path.join(CHECKPOINT_DIR, "naked_image_final_v2.pt")
 torch.save(model.state_dict(), final_path)
 print(f"Final model saved to {final_path}")
