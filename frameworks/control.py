@@ -1,14 +1,16 @@
-from general_framework import *
+# Control framework - basic image reconstruction and text prediction training
 
-def _control_batch(batch_size, model, optimizer=None, batch_num=0, random_order=True, model_eval=True, reset_model=True, printing=True, training=False):
+from .general_framework import *
+
+def _control_batch(batch_size, model, optimizer=None, batch_num=0, random_order=True, model_eval=True, reset_model=True, printing=True, training=False, use_lora=False):
     if training and model_eval:
         raise ValueError("Cannot be training and model_eval cannot both be True")
     
     if model_eval:
-        model.eval()
+        model.pipe.model.eval()
 
     if training:
-        model.train()
+        model.pipe.model.train()
 
     if training and (optimizer is None):
         raise ValueError("Must provide an optimizer if training")
@@ -35,7 +37,8 @@ def _control_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
         ind = num_controls - batch_size
     control_texts = sdt[ind:ind + batch_size].to(device)
 
-    control_probs, control_recon = model(control_texts, img_tensor, ret_imgs=True)
+    # Use adapter function for QwenAgentPlayer
+    control_probs, control_recon = model_forward_with_tokens(model, control_texts, img_tensor, ret_imgs=True)
 
     img_loss = img_criterion(control_recon, img_tensor)
     text_loss = get_text_loss(control_probs, control_texts)
@@ -43,27 +46,25 @@ def _control_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
     loss = img_loss + (text_loss / 1000)
 
     if training:
-        loss.backward()#retain_graph=True)
+        loss.backward()
         optimizer.step()
         optimizer.zero_grad()
-        if type(model) is QwenBastardBrain:
-            model.soft_reset()
+        model.soft_reset()
 
     if printing:
         print(f"Total recon loss: {loss.item()}; that's {text_loss.item()} text and {img_loss.item()} img\n\n")
 
-    if reset_model and (type(model) is QwenBastardBrain):
+    if reset_model:
         model.reset()
 
     return loss.item(), text_loss.item(), img_loss.item()
 
 
-
-def control_batch(batch_size, model, optimizer=None, batch_num=0, compute_grad=False, random_order=True, model_eval=True, reset_model=True, printing=True, training=False):
+def control_batch(batch_size, model, optimizer=None, batch_num=0, compute_grad=False, random_order=True, model_eval=True, reset_model=True, printing=True, training=False, use_lora=False):
     if compute_grad:
-        return _control_batch(batch_size, model, optimizer, batch_num, random_order, model_eval, reset_model, printing, training)
+        return _control_batch(batch_size, model, optimizer, batch_num, random_order, model_eval, reset_model, printing, training, use_lora)
     else:
         if training:
             raise ValueError("If training is True, compute_grad must also be True")
         with torch.no_grad():
-            return _control_batch(batch_size, model, optimizer, batch_num, random_order, model_eval, reset_model, printing, training)
+            return _control_batch(batch_size, model, optimizer, batch_num, random_order, model_eval, reset_model, printing, training, use_lora)

@@ -3,6 +3,11 @@
 
 import torch
 import torch.nn as nn
+import os
+import sys
+
+# Add parent directory to path for game imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from game import discreteGame, BIG_tool_use_advanced_2_5
 

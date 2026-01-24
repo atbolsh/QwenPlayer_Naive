@@ -1,80 +1,287 @@
-# QwenBastardBrain Architecture
+# QwenAgentPlayer Architecture
 
 ## Overview
 
-`QwenBastardBrain` is a multimodal neural network architecture that combines:
-- **Qwen3 language model components** for text understanding and generation
-- **Vision Transformers** for image processing
-- **Memory systems** for context retention
-- **Dopamine-like reward signals** for reinforcement learning
+**QwenAgentPlayer** is a multimodal neural network architecture that combines:
+- **Qwen3 language model** for text understanding and generation
+- **Image encoder/decoder** for visual processing
+- **Canvas history** for tracking generated images
 
-The end goal of this project is to create an agent that can both **play the game** defined in the `game/` folder AND **talk intelligently about it** — reasoning about game states, explaining strategies, and responding to natural language queries.
+The goal is to create an agent that can:
+1. **Play the game** defined in `game/`
+2. **Talk about it** - reasoning about game states, explaining strategies
+3. **Imagine modifications** - visualize hypothetical scenarios
+
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      QwenAgentPlayer                             │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                     QwenAgentPipe                           ││
+│  │  ┌─────────────┐  ┌──────────────────────────────────────┐ ││
+│  │  │  Tokenizer  │  │          QwenExtension               │ ││
+│  │  │  (HF)       │  │  ┌──────────────────────────────┐   │ ││
+│  │  └─────────────┘  │  │        Qwen3 Model           │   │ ││
+│  │                   │  │    (Language Processing)      │   │ ││
+│  │                   │  └──────────────────────────────┘   │ ││
+│  │                   │  ┌─────────────┐ ┌─────────────┐   │ ││
+│  │                   │  │  img_enc    │ │  img_dec    │   │ ││
+│  │                   │  │  (Encoder)  │ │  (Decoder)  │   │ ││
+│  │                   │  └─────────────┘ └─────────────┘   │ ││
+│  │                   └──────────────────────────────────────┘ ││
+│  └─────────────────────────────────────────────────────────────┘│
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │              Canvas History (3 images)                      ││
+│  │  [Canvas 0: Most Recent] [Canvas 1] [Canvas 2: Oldest]     ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## Key Components
 
-### Text Processing (1024-dim, bfloat16)
-- `Qwen3_BastardEncoder`: First half of Qwen3-0.6B model layers for encoding text to embeddings
-- `Qwen3_BastardDecoder`: Second half of Qwen3-0.6B model layers for generating text from embeddings
-- Vocabulary size: **151936** (Qwen's full vocabulary)
+### QwenAgentPlayer
 
-### Vision Processing (1024-dim, float32)
-- `ImageTransformerEncoder`: Encodes 224x224 images to 256 patches × 1024-dim embeddings
-- `ImageTransformerDecoder`: Reconstructs images from embeddings
-- `VisionWeightedSum`: Computes weighted combinations of multiple image features
-- `VisionCanvases`: Stores 3 most recent generated images
+**Location:** `visual_transformer/qwen_agent.py`
 
-### Memory System (1024-dim, float32)
-- `Memory`: Ring-buffer style storage for 128 memory tokens
-- `MemoryEncoder`: Compresses text+context into memory tokens
-
-### Reward Signal
-- `DopamineWrapper`: Produces a scalar reward signal from image/text context
-
-## Data Type Handling
-
-**Critical**: The Qwen encoder/decoder operate in **bfloat16** while the rest of the network uses **float32**.
-
-Conversions happen at these boundaries:
-1. `get_text_encoding()`: Qwen encoder output (bfloat16) → converted to float32
-2. `get_text_decoding()`: Input converted to bfloat16 → Qwen decoder → output converted back to float32
-
-All components use **1024 embedding dimension** consistently.
-
-## Context Structure
-
-The model builds context from 7 sources (all 1024-dim):
-1. Current input image encoding
-2. Canvas 0 (most recent generated image)
-3. Canvas 1
-4. Canvas 2
-5. Memory tensor
-6. Dopamine/reward signal
-7. Text encoding
-
-Each source has a learned `context_tagging` vector added to distinguish it.
-
-## HuggingFace Integration
-
-`QwenBastardBrain` inherits from `PyTorchModelHubMixin` for easy upload/download:
+The top-level wrapper that manages:
+- The processing pipeline (`pipe`)
+- Canvas history for generated images
+- Device management
+- State reset methods
 
 ```python
-# Save to HuggingFace
-model.push_to_hub("your-username/qwen-bastard-brain")
-
-# Load from HuggingFace
-model = QwenBastardBrain.from_pretrained("your-username/qwen-bastard-brain")
+class QwenAgentPlayer:
+    def __init__(self, model_name="Qwen/Qwen3-0.6B", device=None, num_canvases=3):
+        self.pipe = QwenAgentPipe(model_name, device)
+        self.canvases = []  # Most recent first
+        self.num_canvases = num_canvases
 ```
 
-## File Structure
+### QwenAgentPipe
+
+Handles the processing pipeline:
+1. Tokenizes input text
+2. Embeds images using `img_enc`
+3. Creates combined context
+4. Runs through Qwen3 model
+5. Decodes image output using `img_dec`
+
+```python
+class QwenAgentPipe:
+    def forward(self, texts, images, generate_image=True):
+        # 1. Tokenize text
+        tokens = self.tokenize(texts)
+        
+        # 2. Embed image
+        img_embeddings = self.model.img_enc(images)
+        
+        # 3. Combine and process
+        context = self.create_context(tokens, img_embeddings)
+        output = self.model.qwen_model(context)
+        
+        # 4. Generate image
+        if generate_image:
+            generated = self.model.img_dec(output)
+        
+        return PipeOutput(logits=output.logits, generated_image=generated)
+```
+
+### QwenExtension
+
+Extends the base Qwen3 model with image capabilities:
+
+```python
+class QwenExtension(nn.Module):
+    def __init__(self, model_name):
+        self.qwen_model = AutoModelForCausalLM.from_pretrained(model_name)
+        self.img_enc = ImageTransformerEncoder(...)  # 224x224x3 → embeddings
+        self.img_dec = ImageTransformerDecoder(...)  # embeddings → 224x224x3
+```
+
+## Data Flow
+
+### Input Processing
+
+```
+Text Input: "Draw the path to the gold"
+    ↓ Tokenizer
+Token IDs: [256, 1234, 567, ...]
+    ↓ Embedding Layer
+Text Embeddings: (seq_len, embed_dim)
+
+Image Input: (batch, 3, 224, 224)
+    ↓ Patch Embedding + Positional Encoding
+    ↓ Transformer Layers
+Image Embeddings: (num_patches, embed_dim)
+```
+
+### Combined Processing
+
+```
+[Image Embeddings] + [Text Embeddings]
+    ↓ Concatenate
+Combined Context: (total_len, embed_dim)
+    ↓ Qwen3 Transformer Layers
+Output: (total_len, embed_dim)
+    ↓
+Text Output: Logits for next token prediction
+Image Output: Reconstructed/modified image
+```
+
+### Canvas Management
+
+```
+After each generation:
+    new_image = img_dec(output)
+    canvases.insert(0, new_image)  # Add to front
+    if len(canvases) > 3:
+        canvases.pop()  # Remove oldest
+```
+
+## Embedding Dimensions
+
+| Component | Dimension | Notes |
+|-----------|-----------|-------|
+| Qwen3 embeddings | 1024 | For Qwen3-0.6B |
+| Image patches | 256 | 14×14 grid + CLS token |
+| Each patch | 1024 | Matches Qwen |
+| Vocabulary size | 151936 | Qwen tokenizer |
+
+## Model Sizes
+
+| Variant | Parameters | VRAM (Inference) | VRAM (Training) |
+|---------|------------|------------------|-----------------|
+| Qwen3-0.6B | ~600M | ~2GB | ~8GB |
+| With LoRA | +~4M trainable | ~2GB | ~4GB |
+
+## State Management
+
+### soft_reset()
+Called after each training batch:
+- Clears gradients
+- Keeps canvas history
+- Preserves model state
+
+### reset()
+Called between episodes:
+- Clears gradients
+- Clears canvas history
+- Returns model to initial state
+
+## Training Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Training Loop                                 │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                 Framework Selection                         ││
+│  │  [control] [arrow] [qa] [imagine] [zoom] [compare] ...     ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                            ↓                                     │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                  Batch Generation                           ││
+│  │  - Random game states                                       ││
+│  │  - Task-specific prompts                                    ││
+│  │  - Target outputs (images/text)                             ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                            ↓                                     │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                  Forward Pass                               ││
+│  │  model_forward_with_tokens(model, tokens, images)           ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                            ↓                                     │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                  Loss Computation                           ││
+│  │  loss = img_criterion(recon, target) + text_loss/5000       ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                            ↓                                     │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                  Backward + Optimize                        ││
+│  │  loss.backward() → optimizer.step() → model.soft_reset()    ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## LoRA Integration
+
+When using LoRA (Low-Rank Adaptation):
+
+```python
+from peft import LoraConfig, get_peft_model
+
+lora_config = LoraConfig(
+    r=4,                    # Rank
+    lora_alpha=16,          # Scaling factor
+    target_modules=["q_proj", "v_proj"],  # Attention layers
+    lora_dropout=0.1,
+    bias="none",
+    task_type="CAUSAL_LM"
+)
+
+model.pipe.model.qwen_model = get_peft_model(
+    model.pipe.model.qwen_model, 
+    lora_config
+)
+```
+
+Benefits:
+- ~1% of parameters trainable
+- Faster training
+- Lower memory usage
+- Easy to swap adapters
+
+## File Organization
 
 ```
 visual_transformer/
-├── qwen_player.py       # QwenBastardBrain class
-├── qwen_encoders.py     # Qwen3_BastardEncoder/Decoder
-├── enhanced_model.py    # Original EnhancedAgentBrain (768-dim)
-├── model.py             # ImageTransformer, SentenceTransformer components
-├── memory.py            # Memory, MemoryEncoder, MemoryProcessor
-├── vision_canvas.py     # VisionCanvases
-└── custom_transformer.py # PositionalEncoding, PatchEmbedding, etc.
+├── qwen_agent.py        # QwenAgentPlayer, QwenAgentPipe, QwenExtension
+├── model.py             # ImageTransformerEncoder/Decoder, SentenceTransformer
+├── custom_transformer.py # PositionalEncoding, PatchEmbedding
+├── vision_canvas.py     # VisionCanvases (legacy)
+├── memory.py            # Memory (legacy, not used in QwenAgentPlayer)
+└── enhanced_model.py    # EnhancedAgentBrain (legacy, replaced)
 ```
 
+## Historical Context
+
+### Previous Architecture: EnhancedAgentBrain
+
+The previous system used:
+- Separate `Qwen3_BastardEncoder` and `Qwen3_BastardDecoder`
+- Explicit `Memory` objects with ring buffers
+- `VisionCanvases` with learned weights
+- `DopamineWrapper` for reward signals
+
+### Current Architecture: QwenAgentPlayer
+
+Simplified design:
+- Unified `QwenExtension` wrapping full Qwen3
+- Simple list-based canvas history
+- No separate memory system (relies on attention)
+- No dopamine (to be added differently later)
+
+### Migration
+
+Adapter functions in `frameworks/general_framework.py` bridge old code:
+
+```python
+# Old API (frameworks still use this via adapters)
+model(text_ids, images, ret_imgs=True)
+
+# New API - token tensors (efficient, no decode/encode overhead)
+model.batch_forward(input_ids=token_ids, image=img_tensor, generate_image=True)
+
+# New API - string input (convenient but tokenizes internally)
+model.pipe.forward(text=["Hello"], images=[img], generate_image=True)
+```
+
+The `model_forward_with_tokens` adapter operates directly on token tensors,
+calling `model.batch_forward()` without any wasteful decode/encode round-trips.
+
+## Future Directions
+
+1. **Memory augmentation**: Add explicit memory without the complexity of the old system
+2. **Reward learning**: Reintroduce dopamine-like signals for RL
+3. **Multi-step planning**: Extend canvas history for longer horizons
+4. **Action prediction**: Direct action token generation for game playing

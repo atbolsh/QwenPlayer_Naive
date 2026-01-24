@@ -1,6 +1,7 @@
-from general_framework import *
+# General QA framework utilities
+# Provides text generation helpers for QA-style training tasks
 
-# see tutorialQA_framework to see how to use these
+from .general_framework import *
 
 def tensorify_list(text_list, device=device):
     """Convert a list of text strings to a tensor of token ids using Qwen tokenizer."""
