@@ -21,7 +21,7 @@ print("=" * 60)
 print("SECTION 1: Creating QwenAgentPlayer")
 print("=" * 60)
 
-from frameworks import device, create_model, apply_lora, tokenizer
+from frameworks import device, create_model, apply_lora_to_text, tokenizer
 
 # Create the model (this loads Qwen3 and initializes image encoder/decoder)
 print(f"\nUsing device: {device}")

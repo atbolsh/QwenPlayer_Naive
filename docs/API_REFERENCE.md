@@ -197,7 +197,7 @@ from frameworks import (
 ### Model Creation
 
 ```python
-from frameworks import create_model, apply_lora
+from frameworks import create_model, apply_lora_to_text
 
 # Create model
 model = create_model(
@@ -207,7 +207,7 @@ model = create_model(
 )
 
 # Apply LoRA to existing model
-model = apply_lora(model, r=4, lora_alpha=16, lora_dropout=0.1)
+model = apply_lora_to_text(model, r=4, lora_alpha=16, lora_dropout=0.1)
 ```
 
 ### Text Encoding/Decoding

@@ -57,14 +57,17 @@ def create_model(model_name: str = "Qwen/Qwen3-0.6B", device=None, use_lora: boo
     print("Model ready!")
     
     if use_lora:
-        model = apply_lora(model)
+        model = apply_lora_to_text(model)
     
     return model
 
 
-def apply_lora(model, r=4, lora_alpha=16, lora_dropout=0.1):
+def apply_lora_to_text(model, r=4, lora_alpha=16, lora_dropout=0.1):
     """
-    Apply LoRA adapters to the model for efficient training.
+    Apply LoRA adapters to the text model (Qwen) for efficient training.
+    
+    Note: This only applies LoRA to the Qwen language model. The image
+    encoder (img_enc) and decoder (img_dec) remain fully trainable.
     
     Args:
         model: QwenAgentPlayer instance
@@ -73,7 +76,7 @@ def apply_lora(model, r=4, lora_alpha=16, lora_dropout=0.1):
         lora_dropout: Dropout rate for LoRA layers
         
     Returns:
-        Model with LoRA adapters applied
+        Model with LoRA adapters applied to text model
     """
     try:
         from peft import LoraConfig, get_peft_model

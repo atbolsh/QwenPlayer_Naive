@@ -49,9 +49,6 @@ python general_training.py --num_batches 10000 --batch_size 8
 # Training with LoRA (efficient fine-tuning)
 python general_training.py --use_lora --num_batches 10000
 
-# Parallel framework training
-python general_parallel_training.py --num_parallel 4 --use_lora
-
 # Load from checkpoint
 python general_training.py --load_checkpoint brain_checkpoints/model.pth
 ```
@@ -80,7 +77,6 @@ qwen-player/
 │   ├── qwen_agent.py       # QwenAgentPlayer (main model)
 │   └── ...
 ├── game/                    # Game environment
-├── parallel_frameworks/     # Parallel training utilities
 ├── docs/                    # Documentation
 ├── general_training.py      # Main training script
 ├── demo_qwen_agent.py       # Basic demo

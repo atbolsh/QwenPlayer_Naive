@@ -19,7 +19,7 @@ import torch.optim as optim
 
 # Import frameworks package
 from frameworks import (
-    device, create_model, apply_lora,
+    device, create_model, apply_lora_to_text,
     control_batch, arrow_task_batch, qa_task_batch,
     mem_canvas_batch, blue_line_direction_batch,
     gold_direction_batch, gold_proximity_batch,
@@ -98,7 +98,7 @@ def train(
     """
     # Apply LoRA if requested
     if use_lora:
-        model = apply_lora(model)
+        model = apply_lora_to_text(model)
     
     # Create optimizer
     optimizer = optim.Adam(model.pipe.model.parameters(), lr=lr, eps=1e-9)

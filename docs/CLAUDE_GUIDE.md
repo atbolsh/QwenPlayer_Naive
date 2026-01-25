@@ -35,7 +35,6 @@ QwenAgentPlayer (main model wrapper)
 | `frameworks/game_logic_solver.py` | Game movement/direction logic |
 | `game/discreteEngine.py` | Game environment |
 | `general_training.py` | Training script |
-| `general_parallel_training.py` | Parallel training script |
 
 ## Critical Patterns
 
@@ -256,10 +255,8 @@ qwen-player/
 │   ├── qwen_agent.py    # Main model classes
 │   └── ...
 ├── game/                 # Game environment (RARELY EDIT)
-├── parallel_frameworks/  # Parallel training utilities
 ├── docs/                 # Documentation
 ├── general_training.py   # Training script
-├── general_parallel_training.py
 └── demo_*.py            # Demo scripts
 ```
 

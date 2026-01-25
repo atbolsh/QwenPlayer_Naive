@@ -3,7 +3,7 @@
 
 # Core utilities
 from .general_framework import (
-    device, model, tokenizer, create_model, apply_lora,
+    device, model, tokenizer, create_model, apply_lora_to_text,
     encode_text, encode_batch, decode_text, decode_batch,
     get_text_loss, model_forward, model_forward_with_tokens,
     sdt, sdv, num_controls, img_criterion,
@@ -52,7 +52,7 @@ from .imagine_after_move import imagineAfterMove_task_batch
 # All exported batch functions
 __all__ = [
     # Core utilities
-    'device', 'model', 'tokenizer', 'create_model', 'apply_lora',
+    'device', 'model', 'tokenizer', 'create_model', 'apply_lora_to_text',
     'encode_text', 'encode_batch', 'decode_text', 'decode_batch',
     'get_text_loss', 'model_forward', 'model_forward_with_tokens',
     'sdt', 'sdv', 'num_controls', 'img_criterion',
