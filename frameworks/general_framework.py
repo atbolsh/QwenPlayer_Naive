@@ -101,7 +101,20 @@ def apply_lora(model, r=4, lora_alpha=16, lora_dropout=0.1):
 
 # Create default model instance
 print("Loading QwenAgentPlayer...")
+
+# OLD METHOD: Create fresh model from HuggingFace
+# model = create_model(device=device)
+
+# NEW METHOD: Create model and load frankenstein checkpoint (pretrained vision encoder/decoder)
+FRANKENSTEIN_CHECKPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "first_frankenstein.pt")
 model = create_model(device=device)
+if os.path.exists(FRANKENSTEIN_CHECKPOINT):
+    print(f"Loading frankenstein checkpoint from {FRANKENSTEIN_CHECKPOINT}...")
+    model.pipe.model.load_state_dict(torch.load(FRANKENSTEIN_CHECKPOINT, map_location=device))
+    print("Frankenstein checkpoint loaded!")
+else:
+    print(f"WARNING: Frankenstein checkpoint not found at {FRANKENSTEIN_CHECKPOINT}")
+    print("Using fresh model weights. Run frankensteinify.py first to create the checkpoint.")
 
 ########
 # Qwen Tokenizer setup
