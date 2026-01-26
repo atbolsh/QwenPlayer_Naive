@@ -277,6 +277,9 @@ class QwenAgentPipe(nn.Module):
             # Encode: (num_images * batch_size, 256, embed_dim)
             flat_encodings = self.model.encode_image(flat_images)
             
+            # Convert to model dtype (img_enc is float32, but Qwen model may be bfloat16)
+            flat_encodings = flat_encodings.to(self.torch_dtype)
+            
             # Reshape back: (num_images, batch_size, 256, embed_dim)
             image_encodings = flat_encodings.view(num_images, batch_size, 256, self.embed_dim)
         
@@ -520,6 +523,8 @@ class QwenAgentPipe(nn.Module):
             image_tensor = self._preprocess_images(images)
             # image_tensor: (num_images, 3, 224, 224)
             image_encodings = self.model.encode_image(image_tensor)  # (num_images, 256, embed_dim)
+            # Convert to model dtype (img_enc is float32, but Qwen model may be bfloat16)
+            image_encodings = image_encodings.to(self.torch_dtype)
             
             # Get vision start/end embeddings
             vision_start_ids = torch.tensor([[self.begin_vision_id]], device=self.device)
