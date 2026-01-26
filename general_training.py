@@ -9,6 +9,7 @@ Usage:
 """
 
 import os
+import csv
 import random
 import argparse
 import warnings
@@ -16,10 +17,13 @@ from typing import List, Tuple, Callable, Optional
 
 import torch
 import torch.optim as optim
+from torchvision.utils import save_image
 
 # Import frameworks package
 from frameworks import (
-    device, create_model, apply_lora_to_text,
+    device, create_model, apply_lora_to_text, tokenizer,
+    model_forward_with_tokens, encode_batch,
+    G, get_images,
     control_batch, arrow_task_batch, qa_task_batch,
     mem_canvas_batch, blue_line_direction_batch,
     gold_direction_batch, gold_proximity_batch,
@@ -35,9 +39,46 @@ from frameworks import (
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
 
-# Checkpoint directory
+# Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
+DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
+LEDGER_PATH = os.path.join(os.path.dirname(__file__), "training_losses.csv")
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+os.makedirs(DEMO_DIR, exist_ok=True)
+
+
+def save_demo_images(model, step: int, task_name: str, prompt: str = "What do you see?"):
+    """
+    Save sample input/output images for a given task.
+    
+    Args:
+        model: QwenAgentPlayer instance
+        step: Current training step (for filename)
+        task_name: Name of the task (for filename)
+        prompt: Text prompt to use
+    """
+    model.pipe.model.eval()
+    with torch.no_grad():
+        # Generate a game image
+        settings = G.random_bare_settings(gameSize=224)
+        img = get_images([settings], device=device)
+        
+        # Run model forward
+        tokens = encode_batch([prompt]).to(device)
+        _, img_recon = model_forward_with_tokens(model, tokens, img, ret_imgs=True)
+        
+        # Save images
+        safe_task_name = task_name.replace("_batch", "").replace("_task", "")
+        input_path = os.path.join(DEMO_DIR, f"step_{step:06d}_{safe_task_name}_input.png")
+        output_path = os.path.join(DEMO_DIR, f"step_{step:06d}_{safe_task_name}_output.png")
+        
+        save_image(img[0], input_path)
+        if img_recon is not None:
+            save_image(img_recon[0].clamp(0, 1), output_path)
+        
+    model.pipe.model.train()
+    model.reset()
+    return input_path, output_path
 
 
 class ReusableBuffer:
@@ -75,12 +116,13 @@ def train(
     model,
     frameworks: List[Tuple[Callable, int]],
     num_batches: int = 10000,
-    batch_size: int = 8,
+    batch_size: int = 24, #8,
     lr: float = 1e-5,
     use_lora: bool = False,
     checkpoint_prefix: str = "qwen_agent",
     save_every: int = 1000,
     print_every: int = 100,
+    ledger_path: str = LEDGER_PATH,
 ):
     """
     Train QwenAgentPlayer on multiple frameworks.
@@ -95,6 +137,7 @@ def train(
         checkpoint_prefix: Prefix for checkpoint filenames
         save_every: Save checkpoint every N batches
         print_every: Print progress every N batches
+        ledger_path: Path to save loss CSV
     """
     # Apply LoRA if requested
     if use_lora:
@@ -112,12 +155,21 @@ def train(
     task_names = [f[0].__name__ for f in frameworks]
     batch_counts = [0 for _ in frameworks]
     total_losses = [0.0 for _ in frameworks]
+    loss_counts = [0 for _ in frameworks]  # Track how many batches contributed to total_losses
     curr_mins = [1e6 for _ in frameworks]
+    last_losses = [None for _ in frameworks]  # Track most recent loss for each task
+    
+    # Initialize CSV ledger with columns for each framework
+    with open(ledger_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        header = ['global_batch'] + task_names
+        writer.writerow(header)
     
     print(f"Starting training for {num_batches} batches...")
     print(f"Tasks: {task_names}")
     print(f"Repetition weights: {repetitions}")
     print(f"LoRA: {use_lora}")
+    print(f"Loss ledger: {ledger_path}")
     print("=" * 50)
     
     for b in range(num_batches):
@@ -128,7 +180,10 @@ def train(
         
         # Reset model periodically to prevent memory issues
         reset_model = (b % 3 == 2)
-        printing = ((batch_num % print_every) == (print_every - 1))
+        
+        # Print/log every print_every steps OR for the first 10 steps (debugging)
+        should_print = ((b + 1) % print_every == 0) or (b < 10)
+        printing = should_print
         
         # Run training batch
         try:
@@ -147,22 +202,46 @@ def train(
             )
             L = full_results[0]  # Total loss
             total_losses[task_ind] += L
+            loss_counts[task_ind] += 1
+            last_losses[task_ind] = L
         except Exception as e:
             print(f"Error in task {task_names[task_ind]}: {e}")
             model.reset()
             continue
         
-        # Print progress
-        if printing:
-            avg_loss = total_losses[task_ind] / print_every
-            total_losses[task_ind] = 0
-            print(f"Task {task_ind} ({task_names[task_ind]}), batch {batch_num}: avg loss = {avg_loss:.4f}")
+        # Print progress and log to CSV
+        if should_print:
+            # Calculate average loss for the current task
+            if loss_counts[task_ind] > 0:
+                avg_loss = total_losses[task_ind] / loss_counts[task_ind]
+            else:
+                avg_loss = L
+            
+            print(f"Batch {b + 1}/{num_batches} | Task {task_ind} ({task_names[task_ind]}), "
+                  f"task_batch {batch_num}: loss = {L:.4f}, avg = {avg_loss:.4f}")
             
             if avg_loss < curr_mins[task_ind]:
                 curr_mins[task_ind] = avg_loss
                 print(f"  -> New best for task {task_ind}!")
+            
+            # Log to CSV - record average loss for ALL frameworks
+            # Use 'inf' for frameworks that haven't been sampled yet
+            row = [b + 1]
+            for i in range(len(frameworks)):
+                if loss_counts[i] > 0:
+                    row.append(f"{total_losses[i] / loss_counts[i]:.6f}")
+                else:
+                    row.append('inf')
+            with open(ledger_path, 'a', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(row)
+            
+            # Reset accumulated losses after print_every global batches
+            if (b + 1) % print_every == 0:
+                total_losses = [0.0 for _ in frameworks]
+                loss_counts = [0 for _ in frameworks]
         
-        # Save checkpoint
+        # Save checkpoint and demo images
         if (b + 1) % save_every == 0:
             checkpoint_path = os.path.join(
                 CHECKPOINT_DIR, 
@@ -170,11 +249,37 @@ def train(
             )
             torch.save(model.pipe.model.state_dict(), checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
+            
+            # Save demo images for a few representative tasks
+            demo_tasks = [
+                (control_batch, "control", "What do you see?"),
+                (arrow_task_batch, "arrow", "Draw the path to the gold."),
+                (imagineWithoutYou_task_batch, "imagine_no_you", "Show me the room without yourself."),
+            ]
+            for demo_func, demo_name, demo_prompt in demo_tasks:
+                try:
+                    input_path, output_path = save_demo_images(model, b + 1, demo_name, demo_prompt)
+                    print(f"Demo images saved: {demo_name}")
+                except Exception as e:
+                    print(f"Error saving demo images for {demo_name}: {e}")
     
     # Save final checkpoint
     final_path = os.path.join(CHECKPOINT_DIR, f"{checkpoint_prefix}_final.pth")
     torch.save(model.pipe.model.state_dict(), final_path)
     print(f"Final checkpoint saved: {final_path}")
+    
+    # Save final demo images
+    print("Saving final demo images...")
+    demo_tasks = [
+        (control_batch, "control", "What do you see?"),
+        (arrow_task_batch, "arrow", "Draw the path to the gold."),
+        (imagineWithoutYou_task_batch, "imagine_no_you", "Show me the room without yourself."),
+    ]
+    for demo_func, demo_name, demo_prompt in demo_tasks:
+        try:
+            save_demo_images(model, num_batches, f"final_{demo_name}", demo_prompt)
+        except Exception as e:
+            print(f"Error saving final demo images for {demo_name}: {e}")
     
     return model
 
@@ -207,7 +312,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train QwenAgentPlayer")
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA adapters")
     parser.add_argument("--num_batches", type=int, default=10000, help="Number of training batches")
-    parser.add_argument("--batch_size", type=int, default=8, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=24, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
