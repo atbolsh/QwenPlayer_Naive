@@ -226,8 +226,10 @@ def model_forward(model, text_batch, img_batch, ret_imgs=True, generate_image=Tr
     )
     
     # Extract logits and convert to old format (batch, vocab, seq_len)
-    logits = result['outputs'].logits  # (batch, seq_len, vocab)
-    text_probs = logits.permute(0, 2, 1)  # (batch, vocab, seq_len)
+    # Slice off image context tokens - only keep the text portion
+    image_seq_len = result.get('image_seq_len', 0)
+    logits = result['outputs'].logits[:, image_seq_len:, :]  # (batch, text_seq_len, vocab)
+    text_probs = logits.permute(0, 2, 1)  # (batch, vocab, text_seq_len)
     
     if ret_imgs:
         img_recon = result.get('generated_images')
@@ -279,8 +281,10 @@ def model_forward_with_tokens(model, text_batch, img_batch, ret_imgs=True):
     )
     
     # Extract logits and convert to old format (batch, vocab, seq_len)
-    logits = result['outputs'].logits  # (batch, seq_len, vocab)
-    text_probs = logits.permute(0, 2, 1)  # (batch, vocab, seq_len)
+    # Slice off image context tokens - only keep the text portion
+    image_seq_len = result.get('image_seq_len', 0)
+    logits = result['outputs'].logits[:, image_seq_len:, :]  # (batch, text_seq_len, vocab)
+    text_probs = logits.permute(0, 2, 1)  # (batch, vocab, text_seq_len)
     
     if ret_imgs:
         img_recon = result.get('generated_images')

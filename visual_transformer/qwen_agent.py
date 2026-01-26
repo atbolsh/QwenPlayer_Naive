@@ -346,16 +346,19 @@ class QwenAgentPipe(nn.Module):
         outputs = self.model(
             inputs_embeds=inputs_embeds,
             attention_mask=full_attention_mask,
+            output_hidden_states=generate_image,  # Only need hidden states if generating images
         )
         
         # ===== Generate images =====
         generated_images = None
         if generate_image:
             # Get the text portion of the output
+            # CausalLMOutputWithPast has hidden_states tuple, not last_hidden_state
+            last_hidden_state = outputs.hidden_states[-1]
             if image_seq_len > 0:
-                text_encoding = outputs.last_hidden_state[:, image_seq_len:, :]
+                text_encoding = last_hidden_state[:, image_seq_len:, :]
             else:
-                text_encoding = outputs.last_hidden_state
+                text_encoding = last_hidden_state
             text_context = text_encoding.float()
             
             # Determine decoder input
@@ -614,13 +617,16 @@ class QwenAgentPipe(nn.Module):
                 outputs = self.model(
                     inputs_embeds=full_embeds,
                     attention_mask=full_attention,
+                    output_hidden_states=True,
                 )
             
             # Get text portion of hidden states (after image context)
+            # CausalLMOutputWithPast has hidden_states tuple, not last_hidden_state
+            last_hidden_state = outputs.hidden_states[-1]
             if image_seq_len > 0:
-                text_hidden = outputs.last_hidden_state[:, image_seq_len:, :]
+                text_hidden = last_hidden_state[:, image_seq_len:, :]
             else:
-                text_hidden = outputs.last_hidden_state
+                text_hidden = last_hidden_state
             text_context = text_hidden.float()
             
             # Decoder input: last image encoding or random
