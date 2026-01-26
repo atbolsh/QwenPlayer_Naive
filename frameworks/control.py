@@ -35,7 +35,7 @@ def _control_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
     ind = (batch_num * batch_size) % num_controls
     if ind + batch_size > num_controls:
         ind = num_controls - batch_size
-    control_texts = sdt[ind:ind + batch_size].to(device)
+    control_texts = get_text_batch(sdt, ind, batch_size)
 
     # Use adapter function for QwenAgentPlayer
     control_probs, control_recon = model_forward_with_tokens(model, control_texts, img_tensor, ret_imgs=True)

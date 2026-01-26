@@ -51,7 +51,7 @@ def _imagineFacingGold_task_batch(batch_size, model, optimizer=None, batch_num=0
     ind = (batch_num * batch_size) % num_controls
     if ind + batch_size > num_controls:
         ind = num_controls - batch_size
-    control_texts = sdt[ind:ind + batch_size].to(device)
+    control_texts = get_text_batch(sdt, ind, batch_size)
 
     flip = 0
     if random_order:

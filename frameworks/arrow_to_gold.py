@@ -59,7 +59,7 @@ def _arrow_task_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
     ind = (batch_num * batch_size) % num_controls
     if ind + batch_size > num_controls:
         ind = num_controls - batch_size
-    control_texts = sdt[ind:ind + batch_size].to(device)
+    control_texts = get_text_batch(sdt, ind, batch_size)
 
     # Added to fix a small bug
     ct_length = control_texts.size()[1]

@@ -62,7 +62,7 @@ def _direction_names_batch(batch_size, model, optimizer=None, batch_num=0, rando
     ind = (batch_num * batch_size) % num_controls
     if ind + batch_size > num_controls:
         ind = num_controls - batch_size
-    control_texts = sdt[ind:ind + batch_size].to(device)
+    control_texts = get_text_batch(sdt, ind, batch_size)
 
     all_texts = [control_texts, texts_direction_names]
     text_inds = list(range(2))

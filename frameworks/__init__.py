@@ -6,7 +6,7 @@ from .general_framework import (
     device, model, tokenizer, create_model, apply_lora_to_text,
     encode_text, encode_batch, decode_text, decode_batch,
     get_text_loss, model_forward, model_forward_with_tokens,
-    sdt, sdv, num_controls, img_criterion,
+    sdt, sdv, num_controls, img_criterion, get_text_batch,
     MAX_SEQ_LENGTH, vocab_size
 )
 
@@ -55,7 +55,7 @@ __all__ = [
     'device', 'model', 'tokenizer', 'create_model', 'apply_lora_to_text',
     'encode_text', 'encode_batch', 'decode_text', 'decode_batch',
     'get_text_loss', 'model_forward', 'model_forward_with_tokens',
-    'sdt', 'sdv', 'num_controls', 'img_criterion',
+    'sdt', 'sdv', 'num_controls', 'img_criterion', 'get_text_batch',
     'get_settings_batch', 'get_images', 'G', 'game_settings',
     'tensorify_list', 'get_lens', 'simple_sample',
     'text_generator', 'text_generator_simple', 'text_generator_simple_GENERAL',

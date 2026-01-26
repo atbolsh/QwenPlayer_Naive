@@ -381,6 +381,26 @@ except Exception as e:
 
 num_controls = len(sdt)
 
+def get_text_batch(dataset, ind, batch_size, target_device=None):
+    """
+    Get a batch of text tensors from a dataset.
+    
+    Dataset slicing (dataset[a:b]) returns a list, not a tensor.
+    This function stacks the items into a proper tensor.
+    
+    Args:
+        dataset: A PyTorch Dataset (sdt or sdv)
+        ind: Starting index
+        batch_size: Number of items to get
+        target_device: Device to move the tensor to (default: global device)
+        
+    Returns:
+        Tensor of shape (batch_size, seq_len) on the target device
+    """
+    if target_device is None:
+        target_device = device
+    return torch.stack([dataset[i] for i in range(ind, ind + batch_size)]).to(target_device)
+
 ########
 # Loss functions
 ########
