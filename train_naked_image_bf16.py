@@ -13,7 +13,7 @@ import os
 import csv
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
+# Note: GradScaler is not needed for bf16 (it has same exponent range as fp32)
 from torchvision.utils import save_image
 
 from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDecoder
@@ -153,10 +153,6 @@ model.train()
 # This provides better numerical stability for momentum/variance tracking
 optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
-# Gradient scaler for mixed precision training
-# Note: bf16 doesn't strictly need scaling like fp16, but it can help stability
-scaler = GradScaler()
-
 # Loss function
 criterion = nn.MSELoss()
 
@@ -173,12 +169,11 @@ for step in range(NUM_STEPS):
     # Convert to bf16
     img_batch_bf16 = img_batch.to(torch.bfloat16)
     
-    # Forward pass with autocast for bf16
-    with autocast(dtype=torch.bfloat16):
-        reconstructed = model(img_batch_bf16)
-        
-        # Compute loss in bf16
-        loss = criterion(reconstructed, img_batch_bf16)
+    # Forward pass (model is already bf16, no autocast needed)
+    reconstructed = model(img_batch_bf16)
+    
+    # Compute loss in bf16
+    loss = criterion(reconstructed, img_batch_bf16)
     
     # Check for nan/inf
     if torch.isnan(loss) or torch.isinf(loss):
@@ -186,19 +181,15 @@ for step in range(NUM_STEPS):
         optimizer.zero_grad()
         continue
     
-    # Backward pass with gradient scaling
+    # Backward pass (no gradient scaling needed for bf16)
     optimizer.zero_grad()
-    scaler.scale(loss).backward()
-    
-    # Unscale gradients for clipping
-    scaler.unscale_(optimizer)
+    loss.backward()
     
     # Clip gradients to prevent explosion
     torch.nn.utils.clip_grad_norm_(model.parameters(), GRADIENT_CLIP_VALUE)
     
-    # Optimizer step with scaler
-    scaler.step(optimizer)
-    scaler.update()
+    # Optimizer step
+    optimizer.step()
     
     if ((step + 1) % PRINT_EVERY == 0) or (step < 10):
         loss_val = loss.item()
@@ -227,9 +218,8 @@ with torch.no_grad():
     test_imgs = get_images(test_settings, device=device)
     test_imgs_bf16 = test_imgs.to(torch.bfloat16)
     
-    with autocast(dtype=torch.bfloat16):
-        test_recon = model(test_imgs_bf16)
-        test_loss = criterion(test_recon, test_imgs_bf16)
+    test_recon = model(test_imgs_bf16)
+    test_loss = criterion(test_recon, test_imgs_bf16)
     
     print(f"Final eval MSE: {test_loss.item():.6f}")
 
