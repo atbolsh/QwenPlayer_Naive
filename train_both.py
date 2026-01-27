@@ -1,6 +1,6 @@
-"""Train: Text + Image jointly using forward function (LoRA version)
+"""Train: Text + Image jointly using QwenAgentPlayer (LoRA version)
 
-Uses LoRA on text components with batch_size=1 for memory efficiency.
+Uses LoRA on the Qwen model with batch_size=1 for memory efficiency.
 Calls model.reset() every 3 steps to clear memory/canvases.
 """
 
@@ -9,9 +9,10 @@ import torch
 import torch.nn as nn
 from peft import LoraConfig, get_peft_model
 
-from general_framework import (
+from frameworks import (
     model, device, sdt, tokenizer,
-    get_settings_batch, get_images, img_criterion
+    get_settings_batch, get_images, img_criterion,
+    model_forward_with_tokens
 )
 
 # Checkpoint directory
@@ -29,7 +30,7 @@ RESET_EVERY = 3  # Reset memory/canvases every N steps
 TEXT_LOSS_WEIGHT = 1.0
 IMG_LOSS_WEIGHT = 1.0
 
-# LoRA config (no task_type since QwenBastardBrain is a custom model)
+# LoRA config for Qwen model
 lora_config = LoraConfig(
     r=4, lora_alpha=16, lora_dropout=0.1, bias="none",
     target_modules=[
@@ -38,29 +39,18 @@ lora_config = LoraConfig(
     ],
 )
 
-# Wrap model with LoRA
-print("Applying LoRA to model...")
-peft_model = get_peft_model(model, lora_config)
+# Get the underlying QwenExtension model
+qwen_ext = model.pipe.model
 
-# Unfreeze non-Qwen components for full backward passes
-# LoRA only applies to text_enc and text_dec (Qwen-inherited layers)
-# All other components should train normally
-# non_lora_modules = [
-#     "img_enc", "img_dec", "img_weight", 
-#     "dopamine", "context_tagging", "mem_enc"
-# ]
-# for name, param in peft_model.named_parameters():
-#     for module_name in non_lora_modules:
-#         if module_name in name:
-#             param.requires_grad = True
-#             break
+# Apply LoRA to the Qwen language model
+print("Applying LoRA to Qwen model...")
+qwen_ext.qwen_model = get_peft_model(qwen_ext.qwen_model, lora_config)
+qwen_ext.qwen_model.print_trainable_parameters()
 
-peft_model.print_trainable_parameters()
-
-peft_model.train()
+qwen_ext.train()
 
 # Optimizer and loss
-optimizer = torch.optim.AdamW(peft_model.parameters(), lr=LEARNING_RATE)
+optimizer = torch.optim.AdamW(qwen_ext.parameters(), lr=LEARNING_RATE)
 text_criterion = nn.CrossEntropyLoss(ignore_index=tokenizer.pad_token_id or 0)
 
 print(f"Training text + image jointly (LoRA) for {NUM_STEPS} steps...")
@@ -68,7 +58,7 @@ print(f"Training text + image jointly (LoRA) for {NUM_STEPS} steps...")
 for step in range(NUM_STEPS):
     # Reset memory and canvases every RESET_EVERY steps
     if step % RESET_EVERY == 0:
-        peft_model.reset()
+        model.reset()
     
     # Sample text batch
     indices = torch.randint(0, len(sdt), (BATCH_SIZE,))
@@ -79,13 +69,11 @@ for step in range(NUM_STEPS):
     img_batch = get_images(settings_batch, device=device)
     
     # Forward: get both text logits and image reconstruction
-    text_logits, img_recon = peft_model.forward(
+    text_logits, img_recon = model_forward_with_tokens(
+        model,
         text_batch, 
-        img_batch=img_batch, 
-        ret_imgs=True, 
-        return_full=True, 
-        use_masks=True,
-        create_context=True
+        img_batch, 
+        ret_imgs=True
     )
     
     # Text loss: predict next token from current (shift by 1)
@@ -110,18 +98,18 @@ for step in range(NUM_STEPS):
 print("Training complete!")
 
 # Quick eval
-peft_model.eval()
-peft_model.reset()
+qwen_ext.eval()
+model.reset()
 with torch.no_grad():
     test_text = torch.stack([sdt[i] for i in range(min(4, BATCH_SIZE))]).to(device)
     test_settings = get_settings_batch(test_text.size(0))
     test_img = get_images(test_settings, device=device)
     
-    test_logits, test_recon = peft_model.forward(
+    test_logits, test_recon = model_forward_with_tokens(
+        model,
         test_text, 
-        img_batch=test_img, 
-        ret_imgs=True, 
-        return_full=True
+        test_img, 
+        ret_imgs=True
     )
     
     test_text_loss = text_criterion(test_logits[:, :, :-1], test_text[:, 1:])
@@ -130,13 +118,12 @@ with torch.no_grad():
 
 # Save LoRA adapter only
 lora_checkpoint_path = os.path.join(CHECKPOINT_DIR, "both_lora_adapter")
-peft_model.save_pretrained(lora_checkpoint_path)
+qwen_ext.qwen_model.save_pretrained(lora_checkpoint_path)
 print(f"LoRA adapter saved to {lora_checkpoint_path}")
 
-# Merge LoRA into base model and save full QwenBastardBrain
+# Merge LoRA into base model and save full state
 print("Merging LoRA weights into base model...")
-merged_model = peft_model.merge_and_unload()
+qwen_ext.qwen_model = qwen_ext.qwen_model.merge_and_unload()
 merged_checkpoint_path = os.path.join(CHECKPOINT_DIR, "both_lora_merged.pt")
-torch.save(merged_model.state_dict(), merged_checkpoint_path)
+torch.save(qwen_ext.state_dict(), merged_checkpoint_path)
 print(f"Merged model checkpoint saved to {merged_checkpoint_path}")
-

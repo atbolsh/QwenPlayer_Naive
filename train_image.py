@@ -1,9 +1,13 @@
-"""Train: Image autoencoder using img_autoencoder + L2 (MSE) Loss"""
+"""Train: Image autoencoder using img_autoencoder + L2 (MSE) Loss
+
+Updated for QwenAgentPlayer architecture.
+"""
 
 import os
 import torch
 import torch.nn as nn
-from general_framework import model, device, get_images, get_settings_batch
+
+from frameworks import model, device, get_images, get_settings_batch
 
 # Checkpoint directory
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -15,11 +19,14 @@ LEARNING_RATE = 1e-5
 NUM_STEPS = 100
 PRINT_EVERY = 10
 
-# Model comes from general_framework.py (already initialized)
-model.train()
+# Get the underlying QwenExtension model
+qwen_ext = model.pipe.model
+qwen_ext.train()
 
 # Optimizer and loss (L2 = MSE)
-optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+# Only train the image encoder/decoder
+img_params = list(qwen_ext.img_enc.parameters()) + list(qwen_ext.img_dec.parameters())
+optimizer = torch.optim.AdamW(img_params, lr=LEARNING_RATE)
 criterion = nn.MSELoss()
 
 print(f"Training image autoencoder for {NUM_STEPS} steps...")
@@ -30,7 +37,7 @@ for step in range(NUM_STEPS):
     img_batch = get_images(settings, device=device)
     
     # Forward: img_autoencoder returns reconstructed image
-    reconstructed = model.img_autoencoder(img_batch, context=None)
+    reconstructed = qwen_ext.img_autoencoder(img_batch, context=None)
     
     # L2 loss
     loss = criterion(reconstructed, img_batch)
@@ -46,15 +53,15 @@ for step in range(NUM_STEPS):
 print("Training complete!")
 
 # Quick eval
-model.eval()
+qwen_ext.eval()
 with torch.no_grad():
     test_settings = get_settings_batch(4)
     test_imgs = get_images(test_settings, device=device)
-    test_recon = model.img_autoencoder(test_imgs)
+    test_recon = qwen_ext.img_autoencoder(test_imgs)
     test_loss = criterion(test_recon, test_imgs)
     print(f"Final eval MSE: {test_loss.item():.4f}")
 
 # Save checkpoint
 checkpoint_path = os.path.join(CHECKPOINT_DIR, "image_autoencoder_checkpoint.pt")
-torch.save(model.state_dict(), checkpoint_path)
+torch.save(qwen_ext.state_dict(), checkpoint_path)
 print(f"Model checkpoint saved to {checkpoint_path}")

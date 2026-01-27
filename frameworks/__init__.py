@@ -7,11 +7,9 @@ from .general_framework import (
     encode_text, encode_batch, decode_text, decode_batch,
     get_text_loss, model_forward, model_forward_with_tokens,
     sdt, sdv, num_controls, img_criterion, get_text_batch,
-    MAX_SEQ_LENGTH, vocab_size
-)
-
-from .general_framework_lightweight import (
-    get_settings_batch, get_images, G, game_settings
+    MAX_SEQ_LENGTH, vocab_size,
+    # Game utilities (re-exported from root-level lightweight module)
+    get_settings_batch, get_images, G, game_settings,
 )
 
 from .general_qa import (

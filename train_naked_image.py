@@ -1,6 +1,6 @@
 """Train: Naked image autoencoder (encoder + decoder only) with periodic checkpoints
 
-Uses general_framework_lightweight for game utilities without loading the Qwen model.
+Uses frameworks.general_framework_lightweight for game utilities without loading the Qwen model.
 """
 
 import os
@@ -10,13 +10,14 @@ import torch.nn as nn
 from torchvision.utils import save_image
 
 from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDecoder
-from general_framework_lightweight import get_images, get_settings_batch, device
+from general_framework_lightweight import get_images, get_settings_batch, device, img_criterion
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
 DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
 LEDGER_PATH = os.path.join(os.path.dirname(__file__), "naked_ledger_losses_v2.csv")
-LOAD_CHECKPOINT = os.path.join(os.path.dirname(__file__), "brain_checkpoints/naked_image_step_052000.pt")
+# Set to None to start fresh, or provide path to resume
+LOAD_CHECKPOINT = None  # os.path.join(os.path.dirname(__file__), "brain_checkpoints/naked_image_step_052000.pt")
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(DEMO_DIR, exist_ok=True)
 
@@ -30,7 +31,7 @@ SAVE_EVERY = 1000
 
 
 class NakedImageAutoencoder(nn.Module):
-    """Standalone image autoencoder with same params as QwenBastardBrain's img_enc/img_dec."""
+    """Standalone image autoencoder with same params as QwenExtension's img_enc/img_dec."""
     
     def __init__(self, embed_dim=1024, num_heads=8):
         super().__init__()
@@ -70,10 +71,13 @@ with open(LEDGER_PATH, 'w', newline='') as f:
 print("Initializing NakedImageAutoencoder...")
 model = NakedImageAutoencoder(embed_dim=1024, num_heads=8).to(device)
 
-# Load from checkpoint
-print(f"Loading checkpoint from {LOAD_CHECKPOINT}...")
-model.load_state_dict(torch.load(LOAD_CHECKPOINT, map_location=device))
-print("Checkpoint loaded!")
+# Load from checkpoint if specified
+if LOAD_CHECKPOINT and os.path.exists(LOAD_CHECKPOINT):
+    print(f"Loading checkpoint from {LOAD_CHECKPOINT}...")
+    model.load_state_dict(torch.load(LOAD_CHECKPOINT, map_location=device))
+    print("Checkpoint loaded!")
+else:
+    print("Starting fresh (no checkpoint loaded)")
 
 model.train()
 

@@ -76,6 +76,54 @@ class QwenExtension(nn.Module):
         """
         return self.img_dec(img_encoding, context)
     
+    def img_autoencoder(self, img_batch: torch.Tensor, context: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Image autoencoder: encode then decode an image.
+        
+        Args:
+            img_batch: Tensor of shape (batch, channels, height, width)
+            context: Optional context tensor for decoder (defaults to image encoding)
+            
+        Returns:
+            Tensor of reconstructed images
+        """
+        img_encoding = self.img_enc(img_batch)
+        if context is None:
+            context = img_encoding
+        return self.img_dec(img_encoding, context)
+    
+    def text_forward(
+        self,
+        input_ids: torch.LongTensor,
+        attention_mask: Optional[torch.Tensor] = None,
+    ):
+        """
+        Text-only forward pass (no images).
+        
+        Returns logits in format (batch, vocab, seq_len) for backward compatibility
+        with loss functions that expect this shape.
+        
+        Args:
+            input_ids: Token tensor (batch_size, seq_len)
+            attention_mask: Optional attention mask
+            
+        Returns:
+            logits: Tensor of shape (batch, vocab_size, seq_len)
+        """
+        if attention_mask is None:
+            # Create attention mask (1 for non-pad tokens)
+            pad_token_id = self.qwen_model.config.pad_token_id or 0
+            attention_mask = (input_ids != pad_token_id).long()
+        
+        outputs = self.qwen_model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )
+        
+        # logits: (batch, seq_len, vocab) -> (batch, vocab, seq_len)
+        logits = outputs.logits.permute(0, 2, 1)
+        return logits
+    
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,

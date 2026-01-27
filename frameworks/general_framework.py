@@ -20,13 +20,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from visual_transformer import QwenAgentPlayer, QwenAgentPipe, QwenExtension
 from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDecoder
 
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from datasets import load_dataset
-
 from game import *
 
-# Import lightweight game utilities (device, G, get_settings_batch, get_images, img_criterion)
-from .general_framework_lightweight import device, G, game_settings, get_settings_batch, get_images, img_criterion
+# Import from lightweight module at root level (tokenizer, datasets, game utilities)
+# This allows the lightweight module to be imported without loading the full frameworks package
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from general_framework_lightweight import (
+    device, G, game_settings, get_settings_batch, get_images, img_criterion,
+    tokenizer, vocab_size, MAX_SEQ_LENGTH, QWEN_MODEL_NAME,
+    encode_text, encode_batch, decode_text, decode_batch,
+    ProcessBenchDataset, SampleDataset, load_text_datasets, get_text_batch,
+    SPECIAL_TOKENS,
+)
+
+# Re-export model_name for backward compatibility
+model_name = QWEN_MODEL_NAME
 
 ########
 # Model initialization for QwenAgentPlayer
@@ -105,9 +114,6 @@ def apply_lora_to_text(model, r=4, lora_alpha=16, lora_dropout=0.1):
 # Create default model instance
 print("Loading QwenAgentPlayer...")
 
-# OLD METHOD: Create fresh model from HuggingFace
-# model = create_model(device=device)
-
 # NEW METHOD: Create model and load frankenstein checkpoint (pretrained vision encoder/decoder)
 FRANKENSTEIN_CHECKPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "first_frankenstein.pt")
 model = create_model(device=device)
@@ -120,53 +126,11 @@ else:
     print("Using fresh model weights. Run frankensteinify.py first to create the checkpoint.")
 
 ########
-# Qwen Tokenizer setup
+# Load default datasets
 ########
 
-vocab_size = 151936  # Qwen vocab size
-model_name = "Qwen/Qwen3-0.6B"
-
-# Load the Qwen tokenizer
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-# Special tokens for game controls
-# Note: Qwen tokenizer handles special tokens differently than ByteLevelBPE
-# We add custom tokens for game control
-SPECIAL_TOKENS = ['<forward>', '<clock>', '<anticlock>']
-tokenizer.add_special_tokens({'additional_special_tokens': SPECIAL_TOKENS})
-
-# Max sequence length for text
-MAX_SEQ_LENGTH = 32
-
-def encode_text(text, max_length=MAX_SEQ_LENGTH):
-    """Encode text using Qwen tokenizer, returns tensor of token ids."""
-    encoded = tokenizer(
-        text,
-        padding='max_length',
-        truncation=True,
-        max_length=max_length,
-        return_tensors='pt'
-    )
-    return encoded['input_ids'].squeeze(0)
-
-def encode_batch(text_list, max_length=MAX_SEQ_LENGTH):
-    """Encode a batch of texts using Qwen tokenizer."""
-    encoded = tokenizer(
-        text_list,
-        padding='max_length',
-        truncation=True,
-        max_length=max_length,
-        return_tensors='pt'
-    )
-    return encoded['input_ids']
-
-def decode_text(token_ids, skip_special_tokens=False):
-    """Decode token ids back to text."""
-    return tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
-
-def decode_batch(token_ids_batch, skip_special_tokens=False):
-    """Decode a batch of token ids back to text."""
-    return tokenizer.batch_decode(token_ids_batch, skip_special_tokens=skip_special_tokens)
+sdt, sdv = load_text_datasets()
+num_controls = len(sdt)
 
 ########
 # Adapter functions for QwenAgentPlayer
@@ -291,119 +255,6 @@ def model_forward_with_tokens(model, text_batch, img_batch, ret_imgs=True):
         return text_probs, img_recon
     return text_probs
 
-
-########
-# Dataset - using Qwen's ProcessBench
-########
-
-class ProcessBenchDataset(Dataset):
-    """Dataset based on Qwen's ProcessBench for training."""
-    def __init__(self, split='gsm8k', seq_length=MAX_SEQ_LENGTH, device=None):
-        if device is None:
-            device = 'cpu'
-        self.device = device
-        self.seq_length = seq_length
-        
-        # Load ProcessBench dataset
-        self.dataset = load_dataset('Qwen/ProcessBench', split=split)
-        
-        # Pre-tokenize all examples
-        self.examples = []
-        for item in self.dataset:
-            # ProcessBench has various fields - we'll use the main text content
-            # Adjust field access based on actual dataset structure
-            if 'problem' in item:
-                text = item['problem']
-            elif 'question' in item:
-                text = item['question']
-            elif 'text' in item:
-                text = item['text']
-            else:
-                # Fallback: convert the whole item to string
-                text = str(item)
-            
-            encoded = tokenizer(
-                text,
-                padding='max_length',
-                truncation=True,
-                max_length=self.seq_length,
-                return_tensors='pt'
-            )
-            self.examples.append(encoded['input_ids'].squeeze(0))
-    
-    def __len__(self):
-        return len(self.examples)
-    
-    def __getitem__(self, i):
-        return self.examples[i].to(self.device)
-
-
-class SampleDataset(Dataset):
-    """Legacy dataset for local text files, updated for Qwen tokenizer."""
-    def __init__(self, seq_length=MAX_SEQ_LENGTH, evaluate=False, device=None):
-        if device is None:
-            device = 'cpu'
-        self.device = device
-        self.seq_length = seq_length
-        
-        self.examples = []
-        
-        # Look for data in parent directory
-        data_path = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) / "text_pretraining_data"
-        src_files = data_path.glob("*-eval.txt") if evaluate else data_path.glob("*-train.txt")
-        for src_file in src_files:
-            print("🔥", src_file)
-            lines = src_file.read_text(encoding="utf-8").splitlines()
-            for line in lines:
-                if line.strip():  # Skip empty lines
-                    encoded = tokenizer(
-                        line,
-                        padding='max_length',
-                        truncation=True,
-                        max_length=self.seq_length,
-                        return_tensors='pt'
-                    )
-                    self.examples.append(encoded['input_ids'].squeeze(0))
-    
-    def __len__(self):
-        return len(self.examples)
-    
-    def __getitem__(self, i):
-        return self.examples[i].to(self.device)
-
-
-# Default datasets - use ProcessBench as primary
-try:
-    sdt = ProcessBenchDataset(split='gsm8k', device='cpu')
-    sdv = ProcessBenchDataset(split='gsm8k', device='cpu')  # Same split for now; adjust as needed
-    print(f"Loaded ProcessBench dataset with {len(sdt)} examples")
-except Exception as e:
-    print(f"Warning: Could not load ProcessBench dataset: {e}")
-    print("Falling back to local SampleDataset")
-    sdt = SampleDataset()
-    sdv = SampleDataset(evaluate=True)
-
-num_controls = len(sdt)
-
-def get_text_batch(dataset, ind, batch_size, target_device=None):
-    """
-    Get a batch of text tensors from a dataset.
-    
-    Dataset slicing (dataset[a:b]) returns a list, not a tensor.
-    This function stacks the items into a proper tensor.
-    
-    Args:
-        dataset: A PyTorch Dataset (sdt or sdv)
-        ind: Starting index
-        batch_size: Number of items to get
-        target_device: Device to move the tensor to (default: global device)
-        
-    Returns:
-        Tensor of shape (batch_size, seq_len) on the target device
-    """
-    if target_device is None:
-        target_device = device
-    return torch.stack([dataset[i] for i in range(ind, ind + batch_size)]).to(target_device)
 
 ########
 # Loss functions
