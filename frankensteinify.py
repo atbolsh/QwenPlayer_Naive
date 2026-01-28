@@ -15,8 +15,8 @@ from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDe
 
 # Paths
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
-NAKED_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "naked_image_step_052000.pt")
-OUTPUT_PATH = os.path.join(CHECKPOINT_DIR, "first_frankenstein.pt")
+NAKED_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "naked_image_bf16_step_008000.pt")
+OUTPUT_PATH = os.path.join(CHECKPOINT_DIR, "frankenstein_bf16.pt")
 
 # Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
