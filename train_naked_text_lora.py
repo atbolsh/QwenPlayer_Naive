@@ -23,8 +23,8 @@ LEDGER_PATH = os.path.join(os.path.dirname(__file__), "naked_text_lora_losses.cs
 LOAD_LORA_CHECKPOINT = None
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-# Hyperparameters
-BATCH_SIZE = 8
+# Hyperparameters, optimized for H100
+BATCH_SIZE = 650
 LEARNING_RATE = 1e-4  # Higher LR for LoRA
 NUM_STEPS = 10000
 PRINT_EVERY = 100

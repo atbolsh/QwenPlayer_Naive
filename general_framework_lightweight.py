@@ -199,7 +199,21 @@ def get_settings_batch(batch_size, bare=True, restrict_angles=True):
         return [G.random_settings(gameSize=224, restrict_angles=restrict_angles) for i in range(batch_size)]
 
 
-def get_images(settings_batch=None, device=device, ignore_agent=False, ignore_gold=False, ignore_walls=False, batch_size=None, bare=True, restrict_angles=True):
+def get_images(settings_batch=None, device=device, ignore_agent=False, ignore_gold=False, ignore_walls=False, batch_size=None, bare=True, restrict_angles=True, dtype=torch.bfloat16):
+    """
+    Get game images as tensors.
+    
+    Args:
+        settings_batch: List of game settings (or None to generate)
+        device: Target device
+        ignore_agent, ignore_gold, ignore_walls: Drawing options
+        batch_size: Number of images to generate (if settings_batch is None)
+        bare, restrict_angles: Generation options (if settings_batch is None)
+        dtype: Output dtype (default: torch.bfloat16 for consistency with model)
+        
+    Returns:
+        Tensor of shape (batch_size, 3, 224, 224) in specified dtype
+    """
     # If no settings provided, generate them using bare/restrict_angles flags
     if settings_batch is None:
         if batch_size is None:
@@ -207,12 +221,12 @@ def get_images(settings_batch=None, device=device, ignore_agent=False, ignore_go
         settings_batch = get_settings_batch(batch_size, bare=bare, restrict_angles=restrict_angles)
     
     batch_size = len(settings_batch)
-    img = torch.zeros(batch_size, 224, 224, 3)
+    img = torch.zeros(batch_size, 224, 224, 3, dtype=dtype)
     should_draw = (ignore_agent or ignore_gold or ignore_walls)
     for i in range(batch_size):
         G2 = discreteGame(settings_batch[i])
         if should_draw:
             G2.draw(ignore_agent=ignore_agent, ignore_gold=ignore_gold, ignore_wals=ignore_walls)
-        img[i] = torch.tensor(G2.getData())
+        img[i] = torch.tensor(G2.getData(), dtype=dtype)
     img = torch.permute(img, (0, 3, 1, 2)).contiguous().to(device)
     return img

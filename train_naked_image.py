@@ -1,6 +1,7 @@
 """Train: Naked image autoencoder (encoder + decoder only) with periodic checkpoints
 
 Uses frameworks.general_framework_lightweight for game utilities without loading the Qwen model.
+All computations in bf16 by default for consistency with QwenAgentPlayer.
 """
 
 import os
@@ -11,6 +12,9 @@ from torchvision.utils import save_image
 
 from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDecoder
 from general_framework_lightweight import get_images, get_settings_batch, device, img_criterion
+
+# Default dtype for model and images
+DEFAULT_DTYPE = torch.bfloat16
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -31,12 +35,16 @@ SAVE_EVERY = 1000
 
 
 class NakedImageAutoencoder(nn.Module):
-    """Standalone image autoencoder with same params as QwenExtension's img_enc/img_dec."""
+    """Standalone image autoencoder with same params as QwenExtension's img_enc/img_dec.
     
-    def __init__(self, embed_dim=1024, num_heads=8):
+    Uses bf16 by default for consistency with QwenAgentPlayer.
+    """
+    
+    def __init__(self, embed_dim=1024, num_heads=8, dtype=DEFAULT_DTYPE):
         super().__init__()
-        self.img_enc = ImageTransformerEncoder(embed_dim=embed_dim, num_heads=num_heads)
-        self.img_dec = ImageTransformerDecoder(embed_dim=embed_dim, num_heads=num_heads)
+        self.dtype = dtype
+        self.img_enc = ImageTransformerEncoder(embed_dim=embed_dim, num_heads=num_heads, dtype=dtype)
+        self.img_dec = ImageTransformerDecoder(embed_dim=embed_dim, num_heads=num_heads, dtype=dtype)
     
     def forward(self, img_batch):
         encoding = self.img_enc(img_batch)
@@ -52,13 +60,14 @@ def save_demo_image(model, step, device):
     model.eval()
     with torch.no_grad():
         settings = get_settings_batch(1, bare=False, restrict_angles=True)
-        img = get_images(settings, device=device)
+        img = get_images(settings, device=device, dtype=DEFAULT_DTYPE)
         recon = model(img)
         
         input_path = os.path.join(DEMO_DIR, f"naked_step_{step:06d}_v2_input.png")
         output_path = os.path.join(DEMO_DIR, f"naked_step_{step:06d}_v2_output.png")
-        save_image(img[0], input_path)
-        save_image(recon[0].clamp(0, 1), output_path)
+        # Convert to float32 for saving (torchvision requires it)
+        save_image(img[0].float(), input_path)
+        save_image(recon[0].float().clamp(0, 1), output_path)
     model.train()
 
 
@@ -67,14 +76,14 @@ with open(LEDGER_PATH, 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow(['step', 'mse_loss'])
 
-# Initialize model
-print("Initializing NakedImageAutoencoder...")
-model = NakedImageAutoencoder(embed_dim=1024, num_heads=8).to(device)
+# Initialize model (bf16 by default)
+print(f"Initializing NakedImageAutoencoder (dtype={DEFAULT_DTYPE})...")
+model = NakedImageAutoencoder(embed_dim=1024, num_heads=8, dtype=DEFAULT_DTYPE).to(device)
 
 # Load from checkpoint if specified
 if LOAD_CHECKPOINT and os.path.exists(LOAD_CHECKPOINT):
     print(f"Loading checkpoint from {LOAD_CHECKPOINT}...")
-    model.load_state_dict(torch.load(LOAD_CHECKPOINT, map_location=device))
+    model.load_state_dict(torch.load(LOAD_CHECKPOINT, map_location=device, weights_only=True))
     print("Checkpoint loaded!")
 else:
     print("Starting fresh (no checkpoint loaded)")
@@ -90,9 +99,9 @@ print(f"Checkpoints saved every {SAVE_EVERY} steps")
 print(f"Losses logged to {LEDGER_PATH}")
 
 for step in range(NUM_STEPS):
-    # Generate game images
+    # Generate game images (bf16)
     settings = get_settings_batch(BATCH_SIZE, bare=False, restrict_angles=True)
-    img_batch = get_images(settings, device=device)
+    img_batch = get_images(settings, device=device, dtype=DEFAULT_DTYPE)
     
     # Forward
     reconstructed = model(img_batch)
@@ -129,7 +138,7 @@ print("Training complete!")
 model.eval()
 with torch.no_grad():
     test_settings = get_settings_batch(4, bare=False, restrict_angles=True)
-    test_imgs = get_images(test_settings, device=device)
+    test_imgs = get_images(test_settings, device=device, dtype=DEFAULT_DTYPE)
     test_recon = model(test_imgs)
     test_loss = criterion(test_recon, test_imgs)
     print(f"Final eval MSE: {test_loss.item():.6f}")

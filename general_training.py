@@ -59,7 +59,7 @@ def save_demo_images(model, step: int, task_name: str, prompt: str = "What do yo
     """
     model.pipe.model.eval()
     with torch.no_grad():
-        # Generate a game image
+        # Generate a game image (bf16)
         settings = G.random_bare_settings(gameSize=224)
         img = get_images([settings], device=device)
         
@@ -67,14 +67,14 @@ def save_demo_images(model, step: int, task_name: str, prompt: str = "What do yo
         tokens = encode_batch([prompt]).to(device)
         _, img_recon = model_forward_with_tokens(model, tokens, img, ret_imgs=True)
         
-        # Save images
+        # Save images (convert to float32 for torchvision)
         safe_task_name = task_name.replace("_batch", "").replace("_task", "")
         input_path = os.path.join(DEMO_DIR, f"step_{step:06d}_{safe_task_name}_input.png")
         output_path = os.path.join(DEMO_DIR, f"step_{step:06d}_{safe_task_name}_output.png")
         
-        save_image(img[0], input_path)
+        save_image(img[0].float(), input_path)
         if img_recon is not None:
-            save_image(img_recon[0].clamp(0, 1), output_path)
+            save_image(img_recon[0].float().clamp(0, 1), output_path)
         
     model.pipe.model.train()
     model.reset()
@@ -328,7 +328,7 @@ def main():
     # Load checkpoint if specified
     if args.load_checkpoint:
         print(f"Loading checkpoint: {args.load_checkpoint}")
-        model.pipe.model.load_state_dict(torch.load(args.load_checkpoint, map_location=device))
+        model.pipe.model.load_state_dict(torch.load(args.load_checkpoint, map_location=device, weights_only=True))
     
     # Get default frameworks
     frameworks = get_default_frameworks()

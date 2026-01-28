@@ -216,13 +216,13 @@ class QwenAgentPipe(nn.Module):
     
     def _preprocess_images(self, images: List[Union[torch.Tensor, np.ndarray, Image.Image]]) -> torch.Tensor:
         """
-        Preprocess a list of images to tensor format.
+        Preprocess a list of images to tensor format (bf16).
         
         Args:
             images: List of images (can be tensors, numpy arrays, or PIL images)
             
         Returns:
-            Tensor of shape (num_images, channels, height, width)
+            Tensor of shape (num_images, channels, height, width) in bf16
         """
         processed = []
         for img in images:
@@ -232,18 +232,21 @@ class QwenAgentPipe(nn.Module):
                 img = np.array(img) / 255.0
                 if len(img.shape) == 2:  # Grayscale
                     img = np.stack([img] * 3, axis=-1)
-                img = torch.tensor(img, dtype=torch.float32).permute(2, 0, 1)
+                img = torch.tensor(img, dtype=self.torch_dtype).permute(2, 0, 1)
             elif isinstance(img, np.ndarray):
                 if img.max() > 1.0:
                     img = img / 255.0
                 if len(img.shape) == 2:  # Grayscale
                     img = np.stack([img] * 3, axis=-1)
-                img = torch.tensor(img, dtype=torch.float32)
+                img = torch.tensor(img, dtype=self.torch_dtype)
                 if img.shape[-1] == 3:  # HWC -> CHW
                     img = img.permute(2, 0, 1)
             elif isinstance(img, torch.Tensor):
                 if img.shape[-1] == 3:  # HWC -> CHW
                     img = img.permute(2, 0, 1)
+                # Convert to bf16 if not already
+                if img.dtype != self.torch_dtype:
+                    img = img.to(self.torch_dtype)
             processed.append(img)
         
         if len(processed) > 0:
@@ -325,8 +328,7 @@ class QwenAgentPipe(nn.Module):
             # Encode: (num_images * batch_size, 256, embed_dim)
             flat_encodings = self.model.encode_image(flat_images)
             
-            # Convert to model dtype (img_enc is float32, but Qwen model may be bfloat16)
-            flat_encodings = flat_encodings.to(self.torch_dtype)
+            # img_enc is now bf16 by default, same as Qwen model - no conversion needed
             
             # Reshape back: (num_images, batch_size, 256, embed_dim)
             image_encodings = flat_encodings.view(num_images, batch_size, 256, self.embed_dim)
@@ -407,7 +409,7 @@ class QwenAgentPipe(nn.Module):
                 text_encoding = last_hidden_state[:, image_seq_len:, :]
             else:
                 text_encoding = last_hidden_state
-            text_context = text_encoding.float()
+            text_context = text_encoding  # Keep in bf16
             
             # Determine decoder input
             if image_encodings is not None:
@@ -415,15 +417,15 @@ class QwenAgentPipe(nn.Module):
                 # image_encodings: (num_images, batch_size, 256, embed_dim)
                 decoder_input = image_encodings[-1]  # (batch_size, 256, embed_dim)
             else:
-                # Random tensor
+                # Random tensor in bf16
                 decoder_input = torch.randn(
                     batch_size, 256, self.embed_dim,
                     device=self.device,
-                    dtype=torch.float32
+                    dtype=self.torch_dtype
                 ) / 32.0
             
             generated_images = self.model.decode_image(
-                decoder_input.float(),
+                decoder_input,
                 context=text_context
             )
         
@@ -574,8 +576,7 @@ class QwenAgentPipe(nn.Module):
             image_tensor = self._preprocess_images(images)
             # image_tensor: (num_images, 3, 224, 224)
             image_encodings = self.model.encode_image(image_tensor)  # (num_images, 256, embed_dim)
-            # Convert to model dtype (img_enc is float32, but Qwen model may be bfloat16)
-            image_encodings = image_encodings.to(self.torch_dtype)
+            # img_enc is now bf16 by default, same as Qwen model - no conversion needed
             
             # Get vision start/end embeddings
             vision_start_ids = torch.tensor([[self.begin_vision_id]], device=self.device)
@@ -675,7 +676,7 @@ class QwenAgentPipe(nn.Module):
                 text_hidden = last_hidden_state[:, image_seq_len:, :]
             else:
                 text_hidden = last_hidden_state
-            text_context = text_hidden.float()
+            text_context = text_hidden  # Keep in bf16
             
             # Decoder input: last image encoding or random
             if image_encodings is not None:
@@ -685,11 +686,11 @@ class QwenAgentPipe(nn.Module):
                 decoder_input = torch.randn(
                     batch_size, 256, self.embed_dim,
                     device=self.device,
-                    dtype=torch.float32
+                    dtype=self.torch_dtype
                 ) / 32.0
             
             generated_image = self.model.decode_image(
-                decoder_input.float(),
+                decoder_input,
                 context=text_context
             )
         
@@ -740,15 +741,15 @@ class QwenAgentPlayer:
         self.device = self.pipe.device
     
     def _to_tensor(self, image: Union[torch.Tensor, np.ndarray, Image.Image]) -> torch.Tensor:
-        """Convert an image to a torch tensor (3, 224, 224)."""
+        """Convert an image to a torch tensor (3, 224, 224) in bf16."""
         if isinstance(image, torch.Tensor):
             img_tensor = image
         elif isinstance(image, np.ndarray):
-            img_tensor = torch.from_numpy(image).float()
+            img_tensor = torch.from_numpy(image).to(self.pipe.torch_dtype)
             if img_tensor.dim() == 3 and img_tensor.shape[-1] == 3:
                 img_tensor = img_tensor.permute(2, 0, 1)
         elif isinstance(image, Image.Image):
-            img_tensor = torch.from_numpy(np.array(image)).float()
+            img_tensor = torch.from_numpy(np.array(image)).to(self.pipe.torch_dtype)
             if img_tensor.dim() == 3 and img_tensor.shape[-1] == 3:
                 img_tensor = img_tensor.permute(2, 0, 1)
         else:
@@ -763,6 +764,10 @@ class QwenAgentPlayer:
             img_tensor = torch.nn.functional.interpolate(
                 img_tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False
             ).squeeze(0)
+        
+        # Ensure bf16
+        if img_tensor.dtype != self.pipe.torch_dtype:
+            img_tensor = img_tensor.to(self.pipe.torch_dtype)
         
         return img_tensor.to(self.device)
     

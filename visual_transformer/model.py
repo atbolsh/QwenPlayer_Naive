@@ -17,8 +17,9 @@ from .custom_transformer import *
 
 # Main workhorse, image to embedding
 # Default are the ViT parameters: https://arxiv.org/pdf/2010.11929 page 5
+# Default dtype is bfloat16 for efficiency
 class ImageTransformerEncoder(nn.Module):
-    def __init__(self, num_channels=3, num_patches=16, img_size=224, embed_dim=768, num_heads=12, num_layers=6, output_dim=768, dropout=0.1, norm_first=False):
+    def __init__(self, num_channels=3, num_patches=16, img_size=224, embed_dim=768, num_heads=12, num_layers=6, output_dim=768, dropout=0.1, norm_first=False, dtype=torch.bfloat16):
         super().__init__()
         self.patch_num = num_patches
         self.sequence_length = num_patches * num_patches
@@ -26,6 +27,7 @@ class ImageTransformerEncoder(nn.Module):
         self.patch_size = img_size // num_patches
         self.embed_dim = embed_dim
         self.sqrt_embed_dim = math.sqrt(embed_dim)
+        self.dtype = dtype
         self.embed = nn.Sequential(
             PatchEmbedding(embed_dim, self.img_size, self.patch_size, num_channels),
             PositionalEncoding_2D(embed_dim, num_patches),
@@ -42,11 +44,18 @@ class ImageTransformerEncoder(nn.Module):
         self.post_norm = nn.LayerNorm(embed_dim)
         # Convenient tensor:
         self.consecutive_indeces = torch.LongTensor(list(range(self.sequence_length))).to(self.get_device())
+        
+        # Convert to specified dtype
+        if dtype is not None:
+            self.to(dtype)
 
     def get_device(self):
         return self.pe.pe.device
     
     def forward(self, x):
+        # Ensure input matches model dtype
+        if x.dtype != self.dtype:
+            x = x.to(self.dtype)
         x = self.embed(x)
         x = self.encoder(x) # x + self.encoder(x)
 #        return self.post_norm(self.pe(x)) # add position information at the end, too
@@ -55,7 +64,7 @@ class ImageTransformerEncoder(nn.Module):
 # At the end, we have an emedding for every patch.
 
 class ImageTransformerDecoder(nn.Module):
-    def __init__(self, num_channels=3, num_patches=16, img_size=224, embed_dim=768, num_heads=12, num_layers=3, output_dim=768, dropout=0.01, norm_first=False):
+    def __init__(self, num_channels=3, num_patches=16, img_size=224, embed_dim=768, num_heads=12, num_layers=3, output_dim=768, dropout=0.01, norm_first=False, dtype=torch.bfloat16):
         super().__init__()
         self.patch_num = num_patches
         self.sequence_length = num_patches * num_patches
@@ -63,6 +72,7 @@ class ImageTransformerDecoder(nn.Module):
         self.patch_size = img_size // num_patches
         self.embed_dim = embed_dim
         self.sqrt_embed_dim = math.sqrt(embed_dim)
+        self.dtype = dtype
         # I may be doing this wrong; I may need 1024 * 3 instead of 768 here, but I think this will do for now.
         self.pe = PositionalEncoding_2D(embed_dim, num_patches)
         decoder_layer = nn.TransformerDecoderLayer(
@@ -76,13 +86,22 @@ class ImageTransformerDecoder(nn.Module):
         )
         # Convenient tensor:
         self.consecutive_indeces = torch.LongTensor(list(range(self.sequence_length))).to(self.get_device())
+        
+        # Convert to specified dtype
+        if dtype is not None:
+            self.to(dtype)
 
     def get_device(self):
         return self.pe.pe.device
     
     def forward(self, x, context = None):
+        # Ensure inputs match model dtype
+        if x.dtype != self.dtype:
+            x = x.to(self.dtype)
         if context is None:
             context = x
+        elif context.dtype != self.dtype:
+            context = context.to(self.dtype)
         x = self.decoder(x, context)
         return self.linear_layer(x)
 

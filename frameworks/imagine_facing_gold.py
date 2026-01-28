@@ -21,13 +21,13 @@ prompts_imagineFacingGold_tensor = tensorify_list(prompts_imagineFacingGold)
 def imagineFacingGold_data(batch_size):
     S = get_settings_batch(batch_size)
     imgs_in = get_images(S)
-    imgs_out = torch.zeros(batch_size, 224, 224, 3)
+    imgs_out = torch.zeros(batch_size, 224, 224, 3, dtype=torch.bfloat16)
     for i in range(batch_size):
         G2 = discreteGame(S[i])
         new_theta = gold_direction_angle(G2)
         S[i].direction = new_theta
         G2 = discreteGame(S[i])
-        imgs_out[i] = torch.tensor(G2.getData())
+        imgs_out[i] = torch.tensor(G2.getData(), dtype=torch.bfloat16)
     imgs_out = torch.permute(imgs_out, (0, 3, 1, 2)).contiguous().to(device)
 
     texts = simple_sample(batch_size, prompts_imagineFacingGold_tensor)

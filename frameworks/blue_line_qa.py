@@ -59,11 +59,11 @@ def get_blue_line_direction_data(batch_size):
         Nreplies_blueLineDirection_tensor, prompts_blueLineDirection_lens, deciderFunc, device
     )
 
-    imgs = torch.zeros(batch_size, 224, 224, 3)
+    imgs = torch.zeros(batch_size, 224, 224, 3, dtype=torch.bfloat16)
     for i in range(batch_size):
         G2 = discreteGame(S[i])
         G2.draw_arrow(extension=1.0 + 3.0 * np.random.random(), direction=directions[i])
-        imgs[i] = torch.tensor(G2.getData())
+        imgs[i] = torch.tensor(G2.getData(), dtype=torch.bfloat16)
     imgs = torch.permute(imgs, (0, 3, 1, 2)).contiguous().to(device)
     return imgs, texts
 

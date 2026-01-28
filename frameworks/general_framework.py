@@ -115,14 +115,26 @@ def apply_lora_to_text(model, r=4, lora_alpha=16, lora_dropout=0.1):
 print("Loading QwenAgentPlayer...")
 
 # NEW METHOD: Create model and load frankenstein checkpoint (pretrained vision encoder/decoder)
+# Try bf16 checkpoint first, fall back to original
+FRANKENSTEIN_CHECKPOINT_BF16 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "frankenstein_bf16.pt")
 FRANKENSTEIN_CHECKPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "first_frankenstein.pt")
 model = create_model(device=device)
-if os.path.exists(FRANKENSTEIN_CHECKPOINT):
+
+# Model is created in bf16 by default (img_enc/img_dec now default to bf16)
+# Load checkpoint if available
+checkpoint_to_load = None
+if os.path.exists(FRANKENSTEIN_CHECKPOINT_BF16):
+    checkpoint_to_load = FRANKENSTEIN_CHECKPOINT_BF16
+    print(f"Loading bf16 frankenstein checkpoint from {FRANKENSTEIN_CHECKPOINT_BF16}...")
+elif os.path.exists(FRANKENSTEIN_CHECKPOINT):
+    checkpoint_to_load = FRANKENSTEIN_CHECKPOINT
     print(f"Loading frankenstein checkpoint from {FRANKENSTEIN_CHECKPOINT}...")
-    model.pipe.model.load_state_dict(torch.load(FRANKENSTEIN_CHECKPOINT, map_location=device))
+
+if checkpoint_to_load:
+    model.pipe.model.load_state_dict(torch.load(checkpoint_to_load, map_location=device, weights_only=True))
     print("Frankenstein checkpoint loaded!")
 else:
-    print(f"WARNING: Frankenstein checkpoint not found at {FRANKENSTEIN_CHECKPOINT}")
+    print(f"WARNING: Frankenstein checkpoint not found")
     print("Using fresh model weights. Run frankensteinify.py first to create the checkpoint.")
 
 ########

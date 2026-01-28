@@ -30,7 +30,7 @@ def _control_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
             inds = random.sample(list(range(img_set.shape[0])), batch_size)
             img_set = img_set[inds]
 
-    img_tensor = torch.permute(torch.FloatTensor(img_set).to(device), (0, 3, 1, 2))
+    img_tensor = torch.permute(torch.tensor(img_set, dtype=torch.bfloat16).to(device), (0, 3, 1, 2))
 
     ind = (batch_num * batch_size) % num_controls
     if ind + batch_size > num_controls:
