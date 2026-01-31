@@ -8,6 +8,7 @@ from PIL import Image
 import numpy as np
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers.cache_utils import DynamicCache
 
 # Import image encoder/decoder from model.py (with 1024 embed_dim, 8 heads as per negative_example.py)
 from .model import ImageTransformerEncoder, ImageTransformerDecoder
@@ -92,6 +93,82 @@ class QwenExtension(nn.Module):
             context = img_encoding
         return self.img_dec(img_encoding, context)
     
+    def _rotate_half(self, x: torch.Tensor) -> torch.Tensor:
+        """Rotates half the hidden dims of the input for rotary embeddings."""
+        x1 = x[..., : x.shape[-1] // 2]
+        x2 = x[..., x.shape[-1] // 2 :]
+        return torch.cat((-x2, x1), dim=-1)
+    
+    def load_bases(self, image_context: torch.Tensor) -> DynamicCache:
+        """
+        Compute keys and values for every decoder layer from image context embeddings
+        and populate the KV cache. This allows the full Qwen model to only process
+        text tokens while still attending to image information via the cache.
+        
+        Args:
+            image_context: Tensor of shape (batch, seq_len, embed_dim) containing 
+                          the full image context (vision_start + image embeddings + vision_end)
+                          
+        Returns:
+            DynamicCache: A cache containing pre-computed keys and values for all layers
+        """
+        batch_size, seq_len, _ = image_context.shape
+        device = image_context.device
+        
+        # Image context is already at embed_dim which equals hidden_size
+        hidden_states = image_context
+        
+        # Create a new cache
+        cache = DynamicCache()
+        
+        # Get the base model (handle both Qwen3ForCausalLM and Qwen3Model)
+        if hasattr(self.qwen_model, 'model'):
+            base_model = self.qwen_model.model
+        else:
+            base_model = self.qwen_model
+        
+        # Generate position embeddings for the image sequence
+        position_ids = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
+        position_embeddings = base_model.rotary_emb(hidden_states, position_ids)
+        cos, sin = position_embeddings
+        
+        # For each decoder layer, compute and cache the keys and values
+        for layer_idx, decoder_layer in enumerate(base_model.layers):
+            attn = decoder_layer.self_attn
+            
+            # Apply input layer norm
+            normed_hidden = decoder_layer.input_layernorm(hidden_states)
+            
+            # Compute key and value projections
+            head_dim = attn.head_dim
+            num_key_value_heads = self.qwen_model.config.num_key_value_heads
+            
+            # Shape: (batch, seq_len, num_kv_heads * head_dim)
+            key_states = attn.k_proj(normed_hidden)
+            value_states = attn.v_proj(normed_hidden)
+            
+            # Reshape to (batch, seq_len, num_kv_heads, head_dim)
+            hidden_shape = (batch_size, seq_len, num_key_value_heads, head_dim)
+            key_states = key_states.view(*hidden_shape)
+            value_states = value_states.view(*hidden_shape)
+            
+            # Apply key normalization and transpose to (batch, num_kv_heads, seq_len, head_dim)
+            key_states = attn.k_norm(key_states).transpose(1, 2)
+            value_states = value_states.transpose(1, 2)
+            
+            # Apply rotary position embeddings to keys
+            # cos and sin have shape (batch, seq_len, head_dim)
+            cos_unsqueezed = cos.unsqueeze(1)  # (batch, 1, seq_len, head_dim)
+            sin_unsqueezed = sin.unsqueeze(1)  # (batch, 1, seq_len, head_dim)
+            
+            # Rotate keys
+            key_states_rotated = (key_states * cos_unsqueezed) + (self._rotate_half(key_states) * sin_unsqueezed)
+            
+            # Update the cache for this layer
+            cache.update(key_states_rotated, value_states, layer_idx)
+        
+        return cache
+    
     def text_forward(
         self,
         input_ids: torch.LongTensor,
@@ -129,15 +206,35 @@ class QwenExtension(nn.Module):
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
+        past_key_values: Optional[DynamicCache] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        use_cache: bool = True,
+        cache_position: Optional[torch.Tensor] = None,
         **kwargs
     ):
         """
         Forward pass through the extended Qwen model.
+        
+        Supports passing pre-computed KV cache from load_bases.
+        
+        Args:
+            input_ids: Token tensor (batch_size, seq_len)
+            attention_mask: Attention mask (batch_size, total_seq_len including cache)
+            inputs_embeds: Input embeddings (batch_size, seq_len, embed_dim)
+            past_key_values: Pre-computed KV cache from load_bases
+            position_ids: Position IDs for the input (accounts for cache offset)
+            use_cache: Whether to use/return cache
+            cache_position: Positions in the cache
+            **kwargs: Additional arguments passed to qwen_model
         """
         return self.qwen_model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             inputs_embeds=inputs_embeds,
+            past_key_values=past_key_values,
+            position_ids=position_ids,
+            use_cache=use_cache,
+            cache_position=cache_position,
             **kwargs
         )
 
@@ -284,6 +381,10 @@ class QwenAgentPipe(nn.Module):
         """
         Batch forward pass working directly with tensors.
         
+        Uses KV-cache pre-computation for efficiency: image embeddings are processed
+        via load_bases() to compute K/V values directly, then only text is passed
+        through the full transformer layers.
+        
         Each batch item has its OWN images (not shared across batch).
         
         Args:
@@ -296,11 +397,11 @@ class QwenAgentPipe(nn.Module):
             
         Returns:
             Dictionary with:
-                - outputs: Model outputs (includes last_hidden_state, logits if applicable)
+                - outputs: Model outputs (includes logits for TEXT ONLY)
                 - image_encodings: Encoded images (num_images, batch_size, 256, embed_dim) or None
-                - inputs_embeds: Full input embeddings (batch_size, total_seq_len, embed_dim)
-                - attention_mask: Full attention mask
-                - image_seq_len: Length of image context per batch item
+                - inputs_embeds: Text embeddings only (batch_size, text_seq_len, embed_dim)
+                - attention_mask: Full attention mask (including cached image tokens)
+                - image_seq_len: Length of image context (in cache, not in outputs)
                 - generated_images: Generated images (batch_size, ...) if generate_image=True
         """
         batch_size = input_ids.shape[0]
@@ -333,8 +434,8 @@ class QwenAgentPipe(nn.Module):
             # Reshape back: (num_images, batch_size, 256, embed_dim)
             image_encodings = flat_encodings.view(num_images, batch_size, 256, self.embed_dim)
         
-        # ===== Build image context (no for-loop over batch_size) =====
-        image_context = None
+        # ===== Build image context and load into KV cache =====
+        past_key_values = None
         image_seq_len = 0
         
         if image_encodings is not None:
@@ -362,10 +463,6 @@ class QwenAgentPipe(nn.Module):
             # For image i: [label[i], vision_start, image_enc[i], vision_end]
             context_parts = []
             for img_idx in range(num_images):
-                # label_embeds[img_idx]: (batch_size, label_len, embed_dim)
-                # vision_start_batch: (batch_size, 1, embed_dim)
-                # image_encodings[img_idx]: (batch_size, 256, embed_dim)
-                # vision_end_batch: (batch_size, 1, embed_dim)
                 img_context = torch.cat([
                     label_embeds[img_idx],
                     vision_start_batch,
@@ -377,39 +474,57 @@ class QwenAgentPipe(nn.Module):
             # Concatenate all image contexts: (batch_size, total_image_seq_len, embed_dim)
             image_context = torch.cat(context_parts, dim=1)
             image_seq_len = image_context.shape[1]
-        
-        # ===== Get text embeddings =====
-        text_embeds = embed_tokens(input_ids)  # (batch_size, text_seq_len, embed_dim)
-        
-        # ===== Concatenate image context + text =====
-        if image_context is not None:
-            inputs_embeds = torch.cat([image_context, text_embeds], dim=1)
             
-            # Build attention mask
-            image_attention = torch.ones(batch_size, image_seq_len, device=self.device, dtype=attention_mask.dtype)
-            full_attention_mask = torch.cat([image_attention, attention_mask], dim=1)
-        else:
-            inputs_embeds = text_embeds
-            full_attention_mask = attention_mask
+            # Pre-compute KV cache from image context
+            # This is where ALL image processing happens - via load_bases ONLY
+            past_key_values = self.model.load_bases(image_context)
         
-        # ===== Forward through model =====
+        # ===== Get text embeddings (this is ALL we pass through the model) =====
+        text_embeds = embed_tokens(input_ids)  # (batch_size, text_seq_len, embed_dim)
+        text_seq_len = text_embeds.shape[1]
+        
+        # ===== Build attention mask and position IDs =====
+        if image_seq_len > 0:
+            # Extend attention mask to include cached image tokens
+            cache_attention = torch.ones(batch_size, image_seq_len, device=self.device, dtype=attention_mask.dtype)
+            full_attention_mask = torch.cat([cache_attention, attention_mask], dim=1)
+            
+            # Position IDs start after the cached sequence
+            position_ids = torch.arange(
+                image_seq_len, 
+                image_seq_len + text_seq_len, 
+                device=self.device
+            ).unsqueeze(0).expand(batch_size, -1)
+            
+            # Cache position for proper cache handling
+            cache_position = torch.arange(
+                image_seq_len,
+                image_seq_len + text_seq_len,
+                device=self.device
+            )
+        else:
+            full_attention_mask = attention_mask
+            position_ids = None
+            cache_position = None
+        
+        # ===== Forward ONLY text through model (images are in KV cache) =====
         outputs = self.model(
-            inputs_embeds=inputs_embeds,
+            inputs_embeds=text_embeds,
             attention_mask=full_attention_mask,
+            past_key_values=past_key_values,
+            position_ids=position_ids,
+            cache_position=cache_position,
+            use_cache=True,
             output_hidden_states=generate_image,  # Only need hidden states if generating images
         )
         
         # ===== Generate images =====
         generated_images = None
         if generate_image:
-            # Get the text portion of the output
-            # CausalLMOutputWithPast has hidden_states tuple, not last_hidden_state
+            # Get text encoding from output (no slicing needed - output is text only)
+            # CausalLMOutputWithPast has hidden_states tuple
             last_hidden_state = outputs.hidden_states[-1]
-            if image_seq_len > 0:
-                text_encoding = last_hidden_state[:, image_seq_len:, :]
-            else:
-                text_encoding = last_hidden_state
-            text_context = text_encoding  # Keep in bf16
+            text_context = last_hidden_state  # Already text only, keep in bf16
             
             # Determine decoder input
             if image_encodings is not None:
@@ -432,9 +547,9 @@ class QwenAgentPipe(nn.Module):
         return {
             'outputs': outputs,
             'image_encodings': image_encodings,
-            'inputs_embeds': inputs_embeds,
+            'inputs_embeds': text_embeds,  # Now text only
             'attention_mask': full_attention_mask,
-            'image_seq_len': image_seq_len,
+            'image_seq_len': image_seq_len,  # Still tracked for reference
             'generated_images': generated_images,
         }
     
@@ -473,9 +588,9 @@ class QwenAgentPipe(nn.Module):
             images = []
         num_images = len(images)
         
-        # ===== Build input string with <|image_pad|> placeholders =====
-        image_prefix_string = self._build_image_prefix_string(num_images) if num_images > 0 else ""
-        input_strings = [image_prefix_string + t for t in text] if num_images > 0 else list(text)
+        # Note: With KV-cache approach, images are processed via load_bases
+        # and are not prepended to text. input_strings just contains the text.
+        input_strings = list(text)
         
         # ===== Tokenize text =====
         encoded = self.tokenizer(
@@ -540,6 +655,10 @@ class QwenAgentPipe(nn.Module):
         """
         Generate text and optionally an image given input text and optional images.
         
+        Uses KV-cache pre-computation for efficiency: image embeddings are processed
+        via load_bases() to compute K/V values directly, then only text is passed
+        through the full transformer layers.
+        
         Note: In this function, images are SHARED across all texts in the batch.
         
         Args:
@@ -567,8 +686,8 @@ class QwenAgentPipe(nn.Module):
         
         embed_tokens = self._get_embed_tokens()
         
-        # ===== Encode images and build image context =====
-        image_context = None
+        # ===== Encode images and build KV cache =====
+        past_key_values = None
         image_seq_len = 0
         image_encodings = None
         
@@ -611,6 +730,9 @@ class QwenAgentPipe(nn.Module):
             
             image_context = torch.cat(context_parts, dim=1)
             image_seq_len = image_context.shape[1]
+            
+            # Pre-compute KV cache from image context
+            past_key_values = self.model.load_bases(image_context)
         
         # ===== Tokenize and embed text =====
         encoded = self.tokenizer(
@@ -621,22 +743,32 @@ class QwenAgentPipe(nn.Module):
         )
         input_ids = encoded['input_ids'].to(self.device)
         text_attention_mask = encoded['attention_mask'].to(self.device)
+        text_seq_len = input_ids.shape[1]
         
         text_embeds = embed_tokens(input_ids)
         
-        # ===== Concatenate and generate text =====
-        if image_context is not None:
-            inputs_embeds = torch.cat([image_context, text_embeds], dim=1)
-            image_attention = torch.ones(batch_size, image_seq_len, device=self.device, dtype=text_attention_mask.dtype)
-            attention_mask = torch.cat([image_attention, text_attention_mask], dim=1)
+        # ===== Build attention mask and position IDs =====
+        if image_seq_len > 0:
+            # Extend attention mask to include cached image tokens
+            cache_attention = torch.ones(batch_size, image_seq_len, device=self.device, dtype=text_attention_mask.dtype)
+            attention_mask = torch.cat([cache_attention, text_attention_mask], dim=1)
+            
+            # Position IDs start after the cached sequence
+            position_ids = torch.arange(
+                image_seq_len, 
+                image_seq_len + text_seq_len, 
+                device=self.device
+            ).unsqueeze(0).expand(batch_size, -1)
         else:
-            inputs_embeds = text_embeds
             attention_mask = text_attention_mask
+            position_ids = None
         
-        # Generate text tokens
+        # Generate text tokens (only text embeds, images in cache)
         generated_ids = self.model.qwen_model.generate(
-            inputs_embeds=inputs_embeds,
+            inputs_embeds=text_embeds,
             attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
             max_new_tokens=max_new_tokens,
             pad_token_id=self.tokenizer.pad_token_id,
             **generate_kwargs
@@ -648,35 +780,65 @@ class QwenAgentPipe(nn.Module):
         # ===== Generate image =====
         generated_image = None
         if generate_image:
-            # Do a forward pass with generated tokens to get hidden states for image decoding
-            # Embed the generated tokens
+            # We need hidden states for image decoding
+            # Re-run forward pass with generated tokens using KV cache approach
             generated_embeds = embed_tokens(generated_ids)  # (batch_size, gen_seq_len, embed_dim)
+            gen_seq_len = generated_embeds.shape[1]
             
-            # Build full sequence: image_context + generated_embeds
-            if image_context is not None:
-                full_embeds = torch.cat([image_context, generated_embeds], dim=1)
-                gen_attention = torch.ones(batch_size, generated_ids.shape[1], device=self.device, dtype=attention_mask.dtype)
-                full_attention = torch.cat([image_attention, gen_attention], dim=1)
+            # Rebuild KV cache for image (need fresh cache for this forward pass)
+            if num_images > 0:
+                # Rebuild image context for fresh cache
+                context_parts = []
+                for img_idx in range(num_images):
+                    img_enc_batch = image_encodings[img_idx].unsqueeze(0).expand(batch_size, -1, -1)
+                    img_context = torch.cat([
+                        label_embeds[img_idx],
+                        vision_start_batch,
+                        img_enc_batch,
+                        vision_end_batch,
+                    ], dim=1)
+                    context_parts.append(img_context)
+                image_context_fresh = torch.cat(context_parts, dim=1)
+                past_key_values_fresh = self.model.load_bases(image_context_fresh)
+                
+                # Attention mask for generated tokens + cached image
+                gen_attention = torch.ones(batch_size, gen_seq_len, device=self.device, dtype=attention_mask.dtype)
+                full_attention = torch.cat([cache_attention, gen_attention], dim=1)
+                
+                # Position IDs for generated tokens
+                gen_position_ids = torch.arange(
+                    image_seq_len,
+                    image_seq_len + gen_seq_len,
+                    device=self.device
+                ).unsqueeze(0).expand(batch_size, -1)
+                
+                # Cache position
+                cache_position = torch.arange(
+                    image_seq_len,
+                    image_seq_len + gen_seq_len,
+                    device=self.device
+                )
             else:
-                full_embeds = generated_embeds
-                full_attention = torch.ones_like(generated_ids)
+                past_key_values_fresh = None
+                full_attention = torch.ones(batch_size, gen_seq_len, device=self.device, dtype=torch.long)
+                gen_position_ids = None
+                cache_position = None
             
             # Forward pass to get hidden states
             with torch.no_grad():
                 outputs = self.model(
-                    inputs_embeds=full_embeds,
+                    inputs_embeds=generated_embeds,
                     attention_mask=full_attention,
+                    past_key_values=past_key_values_fresh,
+                    position_ids=gen_position_ids,
+                    cache_position=cache_position,
+                    use_cache=True,
                     output_hidden_states=True,
                 )
             
-            # Get text portion of hidden states (after image context)
-            # CausalLMOutputWithPast has hidden_states tuple, not last_hidden_state
+            # Get hidden states (already text only - no slicing needed)
             last_hidden_state = outputs.hidden_states[-1]
-            if image_seq_len > 0:
-                text_hidden = last_hidden_state[:, image_seq_len:, :]
-            else:
-                text_hidden = last_hidden_state
-            text_context = text_hidden  # Keep in bf16
+            text_context = last_hidden_state  # Keep in bf16
             
             # Decoder input: last image encoding or random
             if image_encodings is not None:
