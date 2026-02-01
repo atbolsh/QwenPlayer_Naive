@@ -21,7 +21,7 @@ def task1_img_sample(num_sample=40):
     img_in = torch.zeros(num_sample, 224, 224, 3, dtype=torch.bfloat16)
     img_out = torch.zeros(num_sample, 224, 224, 3, dtype=torch.bfloat16)
     for i in range(num_sample):
-        bare_settings = G.random_bare_settings(gameSize=224, max_agent_offset=0.5)
+        bare_settings = G.random_bare_settings(gameSize=224, max_agent_offset=2.0)
         G2 = discreteGame(bare_settings)
         img_in[i] = torch.tensor(G2.getData(), dtype=torch.bfloat16)
         G2.bare_draw_arrow_at_gold()

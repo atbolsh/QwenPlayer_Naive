@@ -194,7 +194,8 @@ def get_text_batch(dataset, ind, batch_size, target_device=None):
 
 def get_settings_batch(batch_size, bare=True, restrict_angles=True):
     if bare:
-        return [G.random_bare_settings(gameSize=224, max_agent_offset=0.5) for i in range(batch_size)]
+        # max_agent_offset=2.0 allows gold anywhere on the map (up to half game size away)
+        return [G.random_bare_settings(gameSize=224, max_agent_offset=2.0) for i in range(batch_size)]
     else:
         return [G.random_settings(gameSize=224, restrict_angles=restrict_angles) for i in range(batch_size)]
 
