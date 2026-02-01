@@ -250,11 +250,14 @@ def train(
             torch.save(model.pipe.model.state_dict(), checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
             
+            # Reset canvases before generating demo images to avoid issues
+            model.reset()
+            
             # Save demo images for a few representative tasks
             demo_tasks = [
                 (control_batch, "control", "What do you see?"),
-                (arrow_task_batch, "arrow", "Draw the path to the gold."),
-                (imagineWithoutYou_task_batch, "imagine_no_you", "Show me the room without yourself."),
+                # (arrow_task_batch, "arrow", "Draw the path to the gold."),
+                # (imagineWithoutYou_task_batch, "imagine_no_you", "Show me the room without yourself."),
             ]
             for demo_func, demo_name, demo_prompt in demo_tasks:
                 try:
@@ -262,18 +265,24 @@ def train(
                     print(f"Demo images saved: {demo_name}")
                 except Exception as e:
                     print(f"Error saving demo images for {demo_name}: {e}")
+            
+            # Reset canvases after demo images
+            model.reset()
     
     # Save final checkpoint
     final_path = os.path.join(CHECKPOINT_DIR, f"{checkpoint_prefix}_final.pth")
     torch.save(model.pipe.model.state_dict(), final_path)
     print(f"Final checkpoint saved: {final_path}")
     
+    # Reset canvases before generating final demo images
+    model.reset()
+    
     # Save final demo images
     print("Saving final demo images...")
     demo_tasks = [
         (control_batch, "control", "What do you see?"),
-        (arrow_task_batch, "arrow", "Draw the path to the gold."),
-        (imagineWithoutYou_task_batch, "imagine_no_you", "Show me the room without yourself."),
+        # (arrow_task_batch, "arrow", "Draw the path to the gold."),
+        # (imagineWithoutYou_task_batch, "imagine_no_you", "Show me the room without yourself."),
     ]
     for demo_func, demo_name, demo_prompt in demo_tasks:
         try:
@@ -281,30 +290,34 @@ def train(
         except Exception as e:
             print(f"Error saving final demo images for {demo_name}: {e}")
     
+    # Reset canvases after demo images
+    model.reset()
+    
     return model
 
 
 def get_default_frameworks() -> List[Tuple[Callable, int]]:
     """Get default framework configuration."""
     return [
-        (arrow_task_batch, 8),
-        (qa_task_batch, 8),
+        # Only training on control_batch for now
         (control_batch, 8),
-        (mem_canvas_batch, 4),
-        (blue_line_direction_batch, 4),
-        (gold_direction_batch, 4),
-        (gold_proximity_batch, 4),
-        (please_turn_batch, 4),
-        (relposition_qa_batch, 4),
-        (direction_names_batch, 4),
-        (zoom_task_batch, 2),
-        (imagineWithoutYou_task_batch, 2),
-        (imagineWithoutGold_task_batch, 2),
-        (imagineWithoutWalls_task_batch, 2),
-        (imagineWallsOnly_task_batch, 2),
-        (imagineFacingGold_task_batch, 2),
-        (imagineCloser2Gold_task_batch, 2),
-        (imagineAfterMove_task_batch, 2),
+        # (arrow_task_batch, 8),
+        # (qa_task_batch, 8),
+        # (mem_canvas_batch, 4),
+        # (blue_line_direction_batch, 4),
+        # (gold_direction_batch, 4),
+        # (gold_proximity_batch, 4),
+        # (please_turn_batch, 4),
+        # (relposition_qa_batch, 4),
+        # (direction_names_batch, 4),
+        # (zoom_task_batch, 2),
+        # (imagineWithoutYou_task_batch, 2),
+        # (imagineWithoutGold_task_batch, 2),
+        # (imagineWithoutWalls_task_batch, 2),
+        # (imagineWallsOnly_task_batch, 2),
+        # (imagineFacingGold_task_batch, 2),
+        # (imagineCloser2Gold_task_batch, 2),
+        # (imagineAfterMove_task_batch, 2),
     ]
 
 
