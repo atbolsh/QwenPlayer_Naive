@@ -1,15 +1,13 @@
-"""Finetune: Naked image autoencoder for control framework in BFloat16
+"""Finetune: Naked image autoencoder for control framework in Float32
 
 This script finetunes the decoder to work with random noise as context
 instead of the image encoding, simulating how it will be used in the 
 control framework where text embeddings are passed as context.
 
-Key changes from train_naked_image_bf16.py:
-1. Loads frankenstein_bf16.pt to initialize weights
+Key changes from train_naked_image.py:
+1. Loads naked_image_step_052000.pt to initialize weights
 2. Uses G.random_full_image_set() - same images as control framework
 3. Decoder receives random noise as context instead of image encoding
-
-Note: ImageTransformerEncoder/Decoder now default to bf16, so no explicit conversion needed.
 """
 
 import os
@@ -23,16 +21,16 @@ from torchvision.utils import save_image
 from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDecoder
 from general_framework_lightweight import device, img_criterion, G
 
-# Default dtype
-DEFAULT_DTYPE = torch.bfloat16
+# Default dtype - using float32 for training stability
+DEFAULT_DTYPE = torch.float32
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
 DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
 LEDGER_PATH = os.path.join(os.path.dirname(__file__), "finetune_control_losses.csv")
 
-# Checkpoint to load (required - loads frankenstein_bf16.pt)
-FRANKENSTEIN_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "frankenstein_bf16.pt")
+# Checkpoint to load (required - loads naked_image_step_052000.pt)
+INIT_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "naked_image_step_052000.pt")
 
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(DEMO_DIR, exist_ok=True)
@@ -44,7 +42,7 @@ NUM_STEPS = 10000000
 PRINT_EVERY = 100
 SAVE_EVERY = 1000
 
-# bf16 stability settings
+# Stability settings
 GRADIENT_CLIP_VALUE = 1.0  # Clip gradients to prevent explosion
 
 # Embed dim (for random context generation)
@@ -53,7 +51,7 @@ CONTEXT_SEQ_LEN = 32  # Simulate ~32 text tokens
 
 
 class NakedImageAutoencoderWithRandomContext(nn.Module):
-    """Standalone image autoencoder in bf16 with random context for decoder.
+    """Standalone image autoencoder with random context for decoder.
     
     The decoder receives random noise as context instead of the image encoding,
     simulating how it will be used in the control framework where text 
@@ -65,7 +63,6 @@ class NakedImageAutoencoderWithRandomContext(nn.Module):
         self.dtype = dtype
         self.embed_dim = embed_dim
         self.context_seq_len = context_seq_len
-        # img_enc and img_dec now default to bf16
         self.img_enc = ImageTransformerEncoder(embed_dim=embed_dim, num_heads=num_heads, dtype=dtype)
         self.img_dec = ImageTransformerDecoder(embed_dim=embed_dim, num_heads=num_heads, dtype=dtype)
     
@@ -123,9 +120,8 @@ def save_demo_image(model, step, device):
         
         input_path = os.path.join(DEMO_DIR, f"finetune_control_step_{step:06d}_input.png")
         output_path = os.path.join(DEMO_DIR, f"finetune_control_step_{step:06d}_output.png")
-        # Convert to float32 for saving (torchvision requires it)
-        save_image(img[0].float(), input_path)
-        save_image(recon[0].float().clamp(0, 1), output_path)
+        save_image(img[0], input_path)
+        save_image(recon[0].clamp(0, 1), output_path)
     model.train()
 
 
@@ -134,8 +130,8 @@ with open(LEDGER_PATH, 'w', newline='') as f:
     writer = csv.writer(f)
     writer.writerow(['step', 'mse_loss'])
 
-# Initialize model (bf16 by default)
-print("Initializing NakedImageAutoencoderWithRandomContext...")
+# Initialize model (float32)
+print("Initializing NakedImageAutoencoderWithRandomContext (float32)...")
 model = NakedImageAutoencoderWithRandomContext(
     embed_dim=EMBED_DIM, 
     num_heads=8, 
@@ -143,10 +139,10 @@ model = NakedImageAutoencoderWithRandomContext(
     context_seq_len=CONTEXT_SEQ_LEN
 ).to(device)
 
-# Load frankenstein checkpoint
-if os.path.exists(FRANKENSTEIN_CHECKPOINT):
-    print(f"Loading frankenstein checkpoint from {FRANKENSTEIN_CHECKPOINT}...")
-    state_dict = torch.load(FRANKENSTEIN_CHECKPOINT, map_location=device, weights_only=True)
+# Load checkpoint
+if os.path.exists(INIT_CHECKPOINT):
+    print(f"Loading checkpoint from {INIT_CHECKPOINT}...")
+    state_dict = torch.load(INIT_CHECKPOINT, map_location=device, weights_only=True)
     
     # Filter to only load img_enc and img_dec weights
     filtered_state_dict = {}
@@ -155,22 +151,21 @@ if os.path.exists(FRANKENSTEIN_CHECKPOINT):
             filtered_state_dict[key] = value
     
     model.load_state_dict(filtered_state_dict, strict=False)
-    print("Frankenstein checkpoint loaded (img_enc and img_dec weights)!")
+    print("Checkpoint loaded (img_enc and img_dec weights)!")
 else:
-    print(f"ERROR: Frankenstein checkpoint not found at {FRANKENSTEIN_CHECKPOINT}")
-    print("Please run frankensteinify.py first to create the checkpoint.")
+    print(f"ERROR: Checkpoint not found at {INIT_CHECKPOINT}")
+    print("Please ensure the checkpoint file exists.")
     exit(1)
 
 model.train()
 
-# Optimizer - uses fp32 for optimizer state even though model is bf16
-# This provides better numerical stability for momentum/variance tracking
+# Optimizer
 optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 
 # Loss function
 criterion = nn.MSELoss()
 
-print(f"Finetuning image autoencoder for control framework (bf16) for {NUM_STEPS} steps...")
+print(f"Finetuning image autoencoder for control framework (float32) for {NUM_STEPS} steps...")
 print(f"Using random context (shape: batch x {CONTEXT_SEQ_LEN} x {EMBED_DIM}) for decoder")
 print(f"Training on same images as control framework (G.random_full_image_set)")
 print(f"Checkpoints saved every {SAVE_EVERY} steps")
@@ -178,7 +173,7 @@ print(f"Losses logged to {LEDGER_PATH}")
 print(f"Gradient clip value: {GRADIENT_CLIP_VALUE}")
 
 for step in range(NUM_STEPS):
-    # Generate game images (bf16) - same as control framework
+    # Generate game images (float32) - same as control framework
     img_batch = get_control_images(BATCH_SIZE, device=device, dtype=DEFAULT_DTYPE)
     
     # Forward pass (decoder gets random context)
@@ -193,7 +188,7 @@ for step in range(NUM_STEPS):
         optimizer.zero_grad()
         continue
     
-    # Backward pass (no gradient scaling needed for bf16)
+    # Backward pass
     optimizer.zero_grad()
     loss.backward()
     
