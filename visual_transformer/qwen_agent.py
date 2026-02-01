@@ -205,7 +205,7 @@ class QwenExtension(nn.Module):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,  # bf16 embeddings
         past_key_values: Optional[DynamicCache] = None,
         position_ids: Optional[torch.LongTensor] = None,
         use_cache: bool = True,
@@ -374,7 +374,7 @@ class QwenAgentPipe(nn.Module):
     def batch_forward(
         self,
         input_ids: torch.LongTensor,
-        images: Optional[List[torch.FloatTensor]] = None,
+        images: Optional[List[torch.Tensor]] = None,  # bf16 tensors: (batch_size, 3, 224, 224)
         attention_mask: Optional[torch.LongTensor] = None,
         generate_image: bool = True,
     ):
@@ -1045,7 +1045,7 @@ class QwenAgentPlayer:
     def batch_forward(
         self,
         input_ids: torch.LongTensor,
-        image: torch.FloatTensor,
+        image: torch.Tensor,  # bf16 tensor: (batch_size, 3, 224, 224)
         attention_mask: Optional[torch.LongTensor] = None,
         generate_image: bool = True,
     ):
