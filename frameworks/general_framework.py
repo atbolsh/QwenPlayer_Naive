@@ -8,6 +8,10 @@ import os
 import sys
 from pathlib import Path
 
+# Load environment variables from .env file (for HF_TOKEN, etc.)
+from dotenv import load_dotenv
+load_dotenv()
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F

@@ -99,6 +99,29 @@ class QwenExtension(nn.Module):
         x2 = x[..., x.shape[-1] // 2 :]
         return torch.cat((-x2, x1), dim=-1)
     
+    def _get_base_model(self):
+        """Get the base Qwen3Model (the transformer layers).
+        
+        Handles both regular Qwen models and PEFT-wrapped models (LoRA).
+        """
+        qwen = self.qwen_model
+        
+        # Check for PEFT wrapper (LoRA) - has base_model attribute
+        if hasattr(qwen, 'base_model'):
+            # PEFT wraps: qwen_model.base_model.model.model
+            base = qwen.base_model
+            if hasattr(base, 'model') and hasattr(base.model, 'model'):
+                return base.model.model
+            elif hasattr(base, 'model'):
+                return base.model
+        
+        # Regular Qwen3ForCausalLM: qwen_model.model
+        if hasattr(qwen, 'model'):
+            return qwen.model
+        
+        # Qwen3Model directly
+        return qwen
+    
     def load_bases(self, image_context: torch.Tensor) -> DynamicCache:
         """
         Compute keys and values for every decoder layer from image context embeddings
@@ -121,11 +144,8 @@ class QwenExtension(nn.Module):
         # Create a new cache
         cache = DynamicCache()
         
-        # Get the base model (handle both Qwen3ForCausalLM and Qwen3Model)
-        if hasattr(self.qwen_model, 'model'):
-            base_model = self.qwen_model.model
-        else:
-            base_model = self.qwen_model
+        # Get the base model (handle Qwen3ForCausalLM, Qwen3Model, and PEFT wrappers)
+        base_model = self._get_base_model()
         
         # Generate position embeddings for the image sequence
         position_ids = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
@@ -365,11 +385,30 @@ class QwenAgentPipe(nn.Module):
         return "".join(parts)
     
     def _get_embed_tokens(self):
-        """Get the embedding layer from the model."""
-        if hasattr(self.model.qwen_model, 'model'):
-            return self.model.qwen_model.model.embed_tokens
-        else:
-            return self.model.qwen_model.embed_tokens
+        """Get the embedding layer from the model.
+        
+        Handles both regular Qwen models and PEFT-wrapped models (LoRA).
+        """
+        qwen = self.model.qwen_model
+        
+        # Check for PEFT wrapper (LoRA) - has base_model attribute
+        if hasattr(qwen, 'base_model'):
+            # PEFT wraps: qwen_model.base_model.model.model.embed_tokens
+            base = qwen.base_model
+            if hasattr(base, 'model') and hasattr(base.model, 'model'):
+                return base.model.model.embed_tokens
+            elif hasattr(base, 'model'):
+                return base.model.embed_tokens
+        
+        # Regular Qwen3ForCausalLM: qwen_model.model.embed_tokens
+        if hasattr(qwen, 'model') and hasattr(qwen.model, 'embed_tokens'):
+            return qwen.model.embed_tokens
+        
+        # Qwen3Model directly: qwen_model.embed_tokens
+        if hasattr(qwen, 'embed_tokens'):
+            return qwen.embed_tokens
+        
+        raise AttributeError("Could not find embed_tokens in model structure")
     
     def batch_forward(
         self,
