@@ -1,10 +1,10 @@
 """Frankensteinify: Combine trained image autoencoder with fresh QwenAgentPlayer
 
 This script:
-1. Loads the trained naked image autoencoder weights from brain_checkpoints/naked_image_step_052000.pt
+1. Loads the trained naked image autoencoder weights from brain_checkpoints/finetune_control_bf16_step_001000.pt
 2. Creates a new QwenAgentPlayer (loading Qwen layers from HuggingFace)
 3. Attaches the trained vision encoder and decoder to the QwenAgentPlayer
-4. Saves the combined model to brain_checkpoints/first_frankenstein.pt
+4. Saves the combined model to brain_checkpoints/frankenstein_finetune_control_bf16.pt
 """
 
 import os
@@ -15,8 +15,8 @@ from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDe
 
 # Paths
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
-NAKED_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "naked_image_bf16_step_008000.pt")
-OUTPUT_PATH = os.path.join(CHECKPOINT_DIR, "frankenstein_bf16.pt")
+NAKED_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "finetune_control_bf16_step_001000.pt")
+OUTPUT_PATH = os.path.join(CHECKPOINT_DIR, "frankenstein_finetune_control_bf16.pt")
 
 # Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
