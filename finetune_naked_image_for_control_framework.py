@@ -49,7 +49,7 @@ BATCH_SIZE = 1100
 LEARNING_RATE = 1e-5
 NUM_STEPS = 10000000
 PRINT_EVERY = 100
-SAVE_EVERY = 1000
+SAVE_EVERY = 200
 REFRESH_EMBEDDINGS_EVERY = 100  # Refresh embedding tensor every N steps
 
 # Stability settings
@@ -301,7 +301,24 @@ for step in range(NUM_STEPS):
     # Refresh embedding tensor periodically
     if step > 0 and step % REFRESH_EMBEDDINGS_EVERY == 0:
         print(f"Refreshing embedding tensor at step {step}...")
+        
+        # Free up VRAM before loading Qwen3
+        print("Moving training model to CPU to free VRAM...")
+        model.cpu()
+        optimizer.zero_grad(set_to_none=True)  # Clear any gradient tensors
+        
+        # Clear the old embedding tensor
+        del EMBEDDING_TENSOR
+        gc.collect()
+        torch.cuda.empty_cache()
+        
+        # Now safe to load Qwen3 and create new embeddings
         EMBEDDING_TENSOR = initialize_embedding_tensor()
+        
+        # Move training model back to GPU
+        print("Moving training model back to GPU...")
+        model.to(device)
+        model.train()
     
     # Generate game images (float32) - same as control framework
     img_batch = get_control_images(BATCH_SIZE, device=device, dtype=DEFAULT_DTYPE)
