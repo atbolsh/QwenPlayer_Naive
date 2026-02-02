@@ -36,7 +36,7 @@ DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
 LEDGER_PATH = os.path.join(os.path.dirname(__file__), "finetune_control_better_embeddings_bf16_losses.csv")
 
 # Checkpoint to load (float32 checkpoint, will be converted to bf16)
-INIT_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "finetune_control_step_001000.pt")
+INIT_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "finetune_control_better_embeddings_step_001800.pt")
 
 # Save prefix
 SAVE_PREFIX = "finetune_control_better_embeddings_bf16"
@@ -45,7 +45,7 @@ os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(DEMO_DIR, exist_ok=True)
 
 # Hyperparameters
-BATCH_SIZE = 1100
+BATCH_SIZE = 900
 LEARNING_RATE = 1e-5
 NUM_STEPS = 10000000
 PRINT_EVERY = 100

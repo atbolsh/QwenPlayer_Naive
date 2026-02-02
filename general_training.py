@@ -334,12 +334,12 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
 def main():
     parser = argparse.ArgumentParser(description="Train QwenAgentPlayer")
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA adapters")
-    parser.add_argument("--num_batches", type=int, default=10000, help="Number of training batches")
-    parser.add_argument("--batch_size", type=int, default=24, help="Batch size")
+    parser.add_argument("--num_batches", type=int, default=10000000000, help="Number of training batches")
+    parser.add_argument("--batch_size", type=int, default=70, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
-    parser.add_argument("--checkpoint_prefix", type=str, default="qwen_agent", help="Checkpoint filename prefix")
+    parser.add_argument("--checkpoint_prefix", type=str, default="qwen_agent_finetuned_vision_better_embeddings", help="Checkpoint filename prefix")
     parser.add_argument("--load_checkpoint", type=str, default=DEFAULT_INIT_CHECKPOINT, 
                         help="Path to checkpoint to load (default: DEFAULT_INIT_CHECKPOINT at top of file)")
     

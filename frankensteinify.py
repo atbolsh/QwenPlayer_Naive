@@ -15,8 +15,8 @@ from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDe
 
 # Paths
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
-NAKED_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "finetune_control_bf16_step_001000.pt")
-OUTPUT_PATH = os.path.join(CHECKPOINT_DIR, "frankenstein_finetune_control_bf16.pt")
+NAKED_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "finetune_control_better_embeddings_step_000200.pt")
+OUTPUT_PATH = os.path.join(CHECKPOINT_DIR, "frankenstein_finetune_control_better_embeddings_bf16.pt")
 
 # Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
