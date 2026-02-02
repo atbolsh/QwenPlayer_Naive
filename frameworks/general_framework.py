@@ -120,7 +120,7 @@ print("Loading QwenAgentPlayer...")
 
 # NEW METHOD: Create model and load frankenstein checkpoint (pretrained vision encoder/decoder)
 # Try bf16 checkpoint first, fall back to original
-FRANKENSTEIN_CHECKPOINT_BF16 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "frankenstein_finetune_control_bf16.pt")
+FRANKENSTEIN_CHECKPOINT_BF16 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "frankenstein_finetune_control_better_embeddings_bf16.pt")
 FRANKENSTEIN_CHECKPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "first_frankenstein.pt")
 model = create_model(device=device)
 

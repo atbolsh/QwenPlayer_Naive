@@ -39,6 +39,16 @@ from frameworks import (
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
 
+# ============================================================
+# EASILY EDITABLE: Default checkpoint to load at startup
+# Set to None to use the default from frameworks/general_framework.py
+# Or set to a path like "brain_checkpoints/your_checkpoint.pt"
+# NOTE: The default loading happens in frameworks/general_framework.py
+#       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
+#       This override is applied via --load_checkpoint argument.
+# ============================================================
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/frankenstein_finetune_control_better_embeddings_bf16.pt"
+
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
 DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
@@ -330,7 +340,8 @@ def main():
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
     parser.add_argument("--checkpoint_prefix", type=str, default="qwen_agent", help="Checkpoint filename prefix")
-    parser.add_argument("--load_checkpoint", type=str, default=None, help="Path to checkpoint to load")
+    parser.add_argument("--load_checkpoint", type=str, default=DEFAULT_INIT_CHECKPOINT, 
+                        help="Path to checkpoint to load (default: DEFAULT_INIT_CHECKPOINT at top of file)")
     
     args = parser.parse_args()
     
@@ -338,10 +349,16 @@ def main():
     print("Creating model...")
     model = create_model(device=device, use_lora=False)  # LoRA applied in train()
     
-    # Load checkpoint if specified
-    if args.load_checkpoint:
-        print(f"Loading checkpoint: {args.load_checkpoint}")
-        model.pipe.model.load_state_dict(torch.load(args.load_checkpoint, map_location=device, weights_only=True))
+    # Load checkpoint if specified (use --load_checkpoint "" to skip)
+    # NOTE: Model already has default frankenstein weights from frameworks/general_framework.py import
+    if args.load_checkpoint and args.load_checkpoint.strip():
+        checkpoint_path = args.load_checkpoint
+        if os.path.exists(checkpoint_path):
+            print(f"Loading checkpoint: {checkpoint_path}")
+            model.pipe.model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
+        else:
+            print(f"WARNING: Checkpoint not found: {checkpoint_path}")
+            print("Using weights loaded at import time from frameworks/general_framework.py")
     
     # Get default frameworks
     frameworks = get_default_frameworks()
