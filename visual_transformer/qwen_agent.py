@@ -316,9 +316,12 @@ class QwenAgentPipe(nn.Module):
         self.end_vision_id = self.tokenizer.convert_tokens_to_ids(self.END_VISION)
         
         # Load base Qwen model (no need to resize - model already has capacity for added tokens)
+        # Set tie_word_embeddings=False because our checkpoints have both embed_tokens and lm_head
+        # saved separately (they were untied during training)
         qwen_model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=torch_dtype
+            torch_dtype=torch_dtype,
+            tie_word_embeddings=False
         )
         
         # Wrap in QwenExtension (this will verify embed_dim == hidden_size)
