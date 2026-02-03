@@ -355,7 +355,11 @@ def main():
         checkpoint_path = args.load_checkpoint
         if os.path.exists(checkpoint_path):
             print(f"Loading checkpoint: {checkpoint_path}")
-            model.pipe.model.load_state_dict(torch.load(checkpoint_path, map_location=device, weights_only=True))
+            # Use strict=False to allow loading old checkpoints without layer_scale_factors
+            model.pipe.model.load_state_dict(
+                torch.load(checkpoint_path, map_location=device, weights_only=True),
+                strict=False
+            )
         else:
             print(f"WARNING: Checkpoint not found: {checkpoint_path}")
             print("Using weights loaded at import time from frameworks/general_framework.py")

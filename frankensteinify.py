@@ -1,10 +1,12 @@
 """Frankensteinify: Combine trained image autoencoder with fresh QwenAgentPlayer
 
 This script:
-1. Loads the trained naked image autoencoder weights from brain_checkpoints/finetune_control_bf16_step_001000.pt
-2. Creates a new QwenAgentPlayer (loading Qwen layers from HuggingFace)
+1. Loads the trained naked image autoencoder weights from a checkpoint
+2. Creates a new QwenAgentPlayer (loading Qwen layers from HuggingFace with tied weights)
 3. Attaches the trained vision encoder and decoder to the QwenAgentPlayer
-4. Saves the combined model to brain_checkpoints/frankenstein_finetune_control_bf16.pt
+4. Saves the combined model (includes layer_scale_factors for per-layer image scaling)
+
+Note: The saved model uses tied weights (embed_tokens and lm_head share weights).
 """
 
 import os
@@ -13,9 +15,15 @@ import torch
 from visual_transformer import QwenAgentPlayer
 from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDecoder
 
-# Paths
+# ============================================================
+# EASILY EDITABLE: Input and output checkpoint paths
+# ============================================================
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
+
+# Input: trained image autoencoder checkpoint (img_enc and img_dec weights)
 NAKED_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "finetune_control_better_embeddings_step_000200.pt")
+
+# Output: combined frankenstein model
 OUTPUT_PATH = os.path.join(CHECKPOINT_DIR, "frankenstein_finetune_control_better_embeddings_bf16.pt")
 
 # Device

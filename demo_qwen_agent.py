@@ -175,8 +175,8 @@ checkpoint_path = os.path.join(checkpoint_dir, "demo_checkpoint.pth")
 torch.save(model.pipe.model.state_dict(), checkpoint_path)
 print(f"Checkpoint saved to: {checkpoint_path}")
 
-# Load checkpoint
-model.pipe.model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+# Load checkpoint (strict=False for compatibility with different model versions)
+model.pipe.model.load_state_dict(torch.load(checkpoint_path, map_location=device), strict=False)
 print(f"Checkpoint loaded successfully!")
 
 # Clean up demo checkpoint

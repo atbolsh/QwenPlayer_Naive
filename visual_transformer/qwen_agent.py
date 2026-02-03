@@ -21,7 +21,45 @@ class QwenExtension(nn.Module):
     This class wraps a Qwen3 model and adds:
     - Image encoder (1024 embed_dim, 8 heads)
     - Image decoder (1024 embed_dim, 8 heads)
+    - Per-layer scaling factors for image context in KV cache
     """
+    
+    # Measured per-layer INPUT magnitudes from Qwen3-0.6B (layers 0-27)
+    # These represent typical magnitudes of vectors entering each transformer layer
+    LAYER_INPUT_MAGNITUDES = [
+        0.8584,    # Layer 0
+        8.8750,    # Layer 1
+        12.2422,   # Layer 2
+        703.5000,  # Layer 3
+        706.0000,  # Layer 4
+        707.5000,  # Layer 5
+        710.5000,  # Layer 6
+        712.0000,  # Layer 7
+        715.5000,  # Layer 8
+        718.0000,  # Layer 9
+        721.5000,  # Layer 10
+        728.0000,  # Layer 11
+        735.5000,  # Layer 12
+        739.0000,  # Layer 13
+        740.5000,  # Layer 14
+        740.5000,  # Layer 15
+        748.5000,  # Layer 16
+        763.5000,  # Layer 17
+        780.0000,  # Layer 18
+        800.0000,  # Layer 19
+        827.0000,  # Layer 20
+        860.0000,  # Layer 21
+        904.5000,  # Layer 22
+        952.5000,  # Layer 23
+        1003.0000, # Layer 24
+        1071.0000, # Layer 25
+        1146.0000, # Layer 26
+        1174.0000, # Layer 27
+    ]
+    
+    # Measured magnitudes for reference
+    EMBEDDING_MAGNITUDE = 0.8584
+    IMG_ENC_MAGNITUDE = 31.73
     
     def __init__(self, qwen_model, embed_dim: int = 1024, num_heads: int = 8):
         """
@@ -47,6 +85,14 @@ class QwenExtension(nn.Module):
         # Image encoder/decoder with parameters from negative_example.py
         self.img_enc = ImageTransformerEncoder(embed_dim=embed_dim, num_heads=num_heads)
         self.img_dec = ImageTransformerDecoder(embed_dim=embed_dim, num_heads=num_heads)
+        
+        # Per-layer scaling factors for image context
+        # Initialized to layer_magnitude / img_enc_magnitude so image activations 
+        # appear "typical" for each transformer layer
+        initial_scales = torch.tensor([
+            mag / self.IMG_ENC_MAGNITUDE for mag in self.LAYER_INPUT_MAGNITUDES
+        ], dtype=torch.float32)
+        self.layer_scale_factors = nn.Parameter(initial_scales)
     
     def get_device(self):
         """Get the device of the model."""
@@ -128,18 +174,19 @@ class QwenExtension(nn.Module):
         and populate the KV cache. This allows the full Qwen model to only process
         text tokens while still attending to image information via the cache.
         
+        The image context is scaled per-layer to match typical activation magnitudes
+        for each transformer layer, using trainable scaling factors.
+        
         Args:
             image_context: Tensor of shape (batch, seq_len, embed_dim) containing 
                           the full image context (vision_start + image embeddings + vision_end)
+                          All tokens should be normalized to img_enc output magnitude (~32)
                           
         Returns:
             DynamicCache: A cache containing pre-computed keys and values for all layers
         """
         batch_size, seq_len, _ = image_context.shape
         device = image_context.device
-        
-        # Image context is already at embed_dim which equals hidden_size
-        hidden_states = image_context
         
         # Create a new cache
         cache = DynamicCache()
@@ -148,16 +195,22 @@ class QwenExtension(nn.Module):
         base_model = self._get_base_model()
         
         # Generate position embeddings for the image sequence
+        # Use the base image_context for position embeddings (scaling doesn't affect positions)
         position_ids = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
-        position_embeddings = base_model.rotary_emb(hidden_states, position_ids)
+        position_embeddings = base_model.rotary_emb(image_context, position_ids)
         cos, sin = position_embeddings
         
         # For each decoder layer, compute and cache the keys and values
         for layer_idx, decoder_layer in enumerate(base_model.layers):
             attn = decoder_layer.self_attn
             
+            # Scale image context to match typical activation magnitude for this layer
+            # layer_scale_factors are initialized to layer_mag / img_enc_mag
+            scale = self.layer_scale_factors[layer_idx]
+            scaled_hidden = image_context * scale.to(image_context.dtype)
+            
             # Apply input layer norm
-            normed_hidden = decoder_layer.input_layernorm(hidden_states)
+            normed_hidden = decoder_layer.input_layernorm(scaled_hidden)
             
             # Compute key and value projections
             head_dim = attn.head_dim
@@ -316,12 +369,10 @@ class QwenAgentPipe(nn.Module):
         self.end_vision_id = self.tokenizer.convert_tokens_to_ids(self.END_VISION)
         
         # Load base Qwen model (no need to resize - model already has capacity for added tokens)
-        # Set tie_word_embeddings=False because our checkpoints have both embed_tokens and lm_head
-        # saved separately (they were untied during training)
+        # Use default tie_word_embeddings=True to share weights between embed_tokens and lm_head
         qwen_model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=torch_dtype,
-            tie_word_embeddings=False
         )
         
         # Wrap in QwenExtension (this will verify embed_dim == hidden_size)
@@ -413,6 +464,90 @@ class QwenAgentPipe(nn.Module):
         
         raise AttributeError("Could not find embed_tokens in model structure")
     
+    def _build_image_context_and_cache(
+        self,
+        images: Optional[List[torch.Tensor]],
+        batch_size: int,
+        shared_images: bool = False,
+    ):
+        """
+        Build image context tensor and pre-compute KV cache.
+        
+        This is a shared subroutine used by batch_forward and generate to avoid code duplication.
+        
+        Args:
+            images: List of image tensors. 
+                   If shared_images=False: Each tensor is (batch_size, 3, 224, 224)
+                   If shared_images=True: Each tensor is (3, 224, 224) - shared across batch
+            batch_size: Batch size
+            shared_images: If True, images are shared across batch (expand them)
+            
+        Returns:
+            Tuple of (past_key_values, image_seq_len, image_encodings) or (None, 0, None) if no images
+        """
+        if images is None or len(images) == 0:
+            return None, 0, None
+        
+        num_images = len(images)
+        embed_tokens = self._get_embed_tokens()
+        
+        # ===== Encode images =====
+        if shared_images:
+            # Images are (3, 224, 224) each - stack and encode
+            stacked = torch.stack([img.to(self.device) for img in images], dim=0)  # (num_images, 3, 224, 224)
+            flat_encodings = self.model.encode_image(stacked)  # (num_images, 256, embed_dim)
+            # Expand for batch: (num_images, batch_size, 256, embed_dim)
+            image_encodings = flat_encodings.unsqueeze(1).expand(-1, batch_size, -1, -1)
+        else:
+            # Images are (batch_size, 3, 224, 224) each - stack and encode
+            stacked_images = torch.stack([img.to(self.device) for img in images], dim=0)  # (num_images, batch_size, 3, 224, 224)
+            flat_images = stacked_images.view(-1, 3, 224, 224)  # (num_images * batch_size, 3, 224, 224)
+            flat_encodings = self.model.encode_image(flat_images)  # (num_images * batch_size, 256, embed_dim)
+            image_encodings = flat_encodings.view(num_images, batch_size, 256, self.embed_dim)
+        
+        # ===== Scale factor for non-image tokens =====
+        embed_to_img_scale = QwenExtension.IMG_ENC_MAGNITUDE / QwenExtension.EMBEDDING_MAGNITUDE
+        
+        # ===== Get vision start/end embeddings (scaled) =====
+        vision_start_ids = torch.tensor([[self.begin_vision_id]], device=self.device)
+        vision_end_ids = torch.tensor([[self.end_vision_id]], device=self.device)
+        vision_start_embed = embed_tokens(vision_start_ids) * embed_to_img_scale
+        vision_end_embed = embed_tokens(vision_end_ids) * embed_to_img_scale
+        
+        # Expand for batch: (batch_size, 1, embed_dim)
+        vision_start_batch = vision_start_embed.expand(batch_size, -1, -1)
+        vision_end_batch = vision_end_embed.expand(batch_size, -1, -1)
+        
+        # ===== Get label embeddings (scaled) =====
+        label_embeds = []
+        for img_idx in range(num_images):
+            label_text = f"Image {img_idx}:" if img_idx == 0 else f"\nImage {img_idx}:"
+            label_ids = self.tokenizer(label_text, return_tensors='pt', add_special_tokens=False)['input_ids'].to(self.device)
+            label_embed = embed_tokens(label_ids) * embed_to_img_scale
+            label_embed_batch = label_embed.expand(batch_size, -1, -1)
+            label_embeds.append(label_embed_batch)
+        
+        # ===== Build image context =====
+        # All tokens have consistent magnitude (~31.73, matching img_enc output)
+        context_parts = []
+        for img_idx in range(num_images):
+            img_context = torch.cat([
+                label_embeds[img_idx],
+                vision_start_batch,
+                image_encodings[img_idx],  # (batch_size, 256, embed_dim)
+                vision_end_batch,
+            ], dim=1)
+            context_parts.append(img_context)
+        
+        image_context = torch.cat(context_parts, dim=1)  # (batch_size, total_image_seq_len, embed_dim)
+        image_seq_len = image_context.shape[1]
+        
+        # ===== Pre-compute KV cache =====
+        # load_bases will scale per-layer to match typical activation magnitudes
+        past_key_values = self.model.load_bases(image_context)
+        
+        return past_key_values, image_seq_len, image_encodings
+    
     def batch_forward(
         self,
         input_ids: torch.LongTensor,
@@ -455,71 +590,13 @@ class QwenAgentPipe(nn.Module):
         
         embed_tokens = self._get_embed_tokens()
         
-        # ===== Encode images =====
-        image_encodings = None
-        num_images = 0
-        
-        if images is not None and len(images) > 0:
-            num_images = len(images)
-            
-            # Stack all images: (num_images, batch_size, 3, 224, 224)
-            stacked_images = torch.stack([img.to(self.device) for img in images], dim=0)
-            
-            # Reshape to encode all at once: (num_images * batch_size, 3, 224, 224)
-            flat_images = stacked_images.view(-1, 3, 224, 224)
-            
-            # Encode: (num_images * batch_size, 256, embed_dim)
-            flat_encodings = self.model.encode_image(flat_images)
-            
-            # img_enc is now bf16 by default, same as Qwen model - no conversion needed
-            
-            # Reshape back: (num_images, batch_size, 256, embed_dim)
-            image_encodings = flat_encodings.view(num_images, batch_size, 256, self.embed_dim)
-        
-        # ===== Build image context and load into KV cache =====
-        past_key_values = None
-        image_seq_len = 0
-        
-        if image_encodings is not None:
-            # Get vision start/end embeddings (same for all)
-            vision_start_ids = torch.tensor([[self.begin_vision_id]], device=self.device)
-            vision_end_ids = torch.tensor([[self.end_vision_id]], device=self.device)
-            vision_start_embed = embed_tokens(vision_start_ids)  # (1, 1, embed_dim)
-            vision_end_embed = embed_tokens(vision_end_ids)      # (1, 1, embed_dim)
-            
-            # Expand for batch: (batch_size, 1, embed_dim)
-            vision_start_batch = vision_start_embed.expand(batch_size, -1, -1)
-            vision_end_batch = vision_end_embed.expand(batch_size, -1, -1)
-            
-            # Tokenize all labels ONCE (they're the same for all batch items)
-            label_embeds = []
-            for img_idx in range(num_images):
-                label_text = f"Image {img_idx}:" if img_idx == 0 else f"\nImage {img_idx}:"
-                label_ids = self.tokenizer(label_text, return_tensors='pt', add_special_tokens=False)['input_ids'].to(self.device)
-                label_embed = embed_tokens(label_ids)  # (1, label_len, embed_dim)
-                # Expand for batch: (batch_size, label_len, embed_dim)
-                label_embed_batch = label_embed.expand(batch_size, -1, -1)
-                label_embeds.append(label_embed_batch)
-            
-            # Build image context by concatenating for each image
-            # For image i: [label[i], vision_start, image_enc[i], vision_end]
-            context_parts = []
-            for img_idx in range(num_images):
-                img_context = torch.cat([
-                    label_embeds[img_idx],
-                    vision_start_batch,
-                    image_encodings[img_idx],  # (batch_size, 256, embed_dim)
-                    vision_end_batch,
-                ], dim=1)
-                context_parts.append(img_context)
-            
-            # Concatenate all image contexts: (batch_size, total_image_seq_len, embed_dim)
-            image_context = torch.cat(context_parts, dim=1)
-            image_seq_len = image_context.shape[1]
-            
-            # Pre-compute KV cache from image context
-            # This is where ALL image processing happens - via load_bases ONLY
-            past_key_values = self.model.load_bases(image_context)
+        # ===== Build image context and KV cache using shared helper =====
+        # Images are per-batch-item (not shared), so shared_images=False
+        past_key_values, image_seq_len, image_encodings = self._build_image_context_and_cache(
+            images=images,
+            batch_size=batch_size,
+            shared_images=False,
+        )
         
         # ===== Get text embeddings (this is ALL we pass through the model) =====
         text_embeds = embed_tokens(input_ids)  # (batch_size, text_seq_len, embed_dim)
@@ -728,53 +805,19 @@ class QwenAgentPipe(nn.Module):
         
         embed_tokens = self._get_embed_tokens()
         
-        # ===== Encode images and build KV cache =====
-        past_key_values = None
-        image_seq_len = 0
-        image_encodings = None
-        
+        # ===== Build image context and KV cache using shared helper =====
+        # Preprocess images first (convert PIL/numpy to tensor)
+        images_list = None
         if num_images > 0:
-            image_tensor = self._preprocess_images(images)
-            # image_tensor: (num_images, 3, 224, 224)
-            image_encodings = self.model.encode_image(image_tensor)  # (num_images, 256, embed_dim)
-            # img_enc is now bf16 by default, same as Qwen model - no conversion needed
-            
-            # Get vision start/end embeddings
-            vision_start_ids = torch.tensor([[self.begin_vision_id]], device=self.device)
-            vision_end_ids = torch.tensor([[self.end_vision_id]], device=self.device)
-            vision_start_embed = embed_tokens(vision_start_ids)  # (1, 1, embed_dim)
-            vision_end_embed = embed_tokens(vision_end_ids)      # (1, 1, embed_dim)
-            
-            # Expand for batch
-            vision_start_batch = vision_start_embed.expand(batch_size, -1, -1)
-            vision_end_batch = vision_end_embed.expand(batch_size, -1, -1)
-            
-            # Tokenize labels once, expand for batch
-            label_embeds = []
-            for img_idx in range(num_images):
-                label_text = f"Image {img_idx}:" if img_idx == 0 else f"\nImage {img_idx}:"
-                label_ids = self.tokenizer(label_text, return_tensors='pt', add_special_tokens=False)['input_ids'].to(self.device)
-                label_embed = embed_tokens(label_ids).expand(batch_size, -1, -1)
-                label_embeds.append(label_embed)
-            
-            # Build image context (images are shared, so expand each encoding for batch)
-            context_parts = []
-            for img_idx in range(num_images):
-                # image_encodings[img_idx]: (256, embed_dim) - expand for batch
-                img_enc_batch = image_encodings[img_idx].unsqueeze(0).expand(batch_size, -1, -1)
-                img_context = torch.cat([
-                    label_embeds[img_idx],
-                    vision_start_batch,
-                    img_enc_batch,
-                    vision_end_batch,
-                ], dim=1)
-                context_parts.append(img_context)
-            
-            image_context = torch.cat(context_parts, dim=1)
-            image_seq_len = image_context.shape[1]
-            
-            # Pre-compute KV cache from image context
-            past_key_values = self.model.load_bases(image_context)
+            preprocessed = self._preprocess_images(images)  # (num_images, 3, 224, 224)
+            # Convert to list for the helper - images are shared across batch
+            images_list = [preprocessed[i] for i in range(num_images)]
+        
+        past_key_values, image_seq_len, image_encodings = self._build_image_context_and_cache(
+            images=images_list,
+            batch_size=batch_size,
+            shared_images=True,  # Images are shared across batch in generate()
+        )
         
         # ===== Tokenize and embed text =====
         encoded = self.tokenizer(
@@ -829,21 +872,15 @@ class QwenAgentPipe(nn.Module):
             
             # Rebuild KV cache for image (need fresh cache for this forward pass)
             if num_images > 0:
-                # Rebuild image context for fresh cache
-                context_parts = []
-                for img_idx in range(num_images):
-                    img_enc_batch = image_encodings[img_idx].unsqueeze(0).expand(batch_size, -1, -1)
-                    img_context = torch.cat([
-                        label_embeds[img_idx],
-                        vision_start_batch,
-                        img_enc_batch,
-                        vision_end_batch,
-                    ], dim=1)
-                    context_parts.append(img_context)
-                image_context_fresh = torch.cat(context_parts, dim=1)
-                past_key_values_fresh = self.model.load_bases(image_context_fresh)
+                # Use helper to rebuild fresh cache (re-uses images_list from above)
+                past_key_values_fresh, _, _ = self._build_image_context_and_cache(
+                    images=images_list,
+                    batch_size=batch_size,
+                    shared_images=True,
+                )
                 
                 # Attention mask for generated tokens + cached image
+                cache_attention = torch.ones(batch_size, image_seq_len, device=self.device, dtype=attention_mask.dtype)
                 gen_attention = torch.ones(batch_size, gen_seq_len, device=self.device, dtype=attention_mask.dtype)
                 full_attention = torch.cat([cache_attention, gen_attention], dim=1)
                 
