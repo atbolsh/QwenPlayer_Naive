@@ -47,12 +47,12 @@ warnings.filterwarnings('ignore')
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
 # ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/frankenstein_with_scales_bf16.pt"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_scales_control_only_batch2000.pth"
 
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "qwen_agent_scales_control_only"
+DEFAULT_SAVE_PREFIX = "qwen_agent_scales_control_plus"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -316,8 +316,8 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
     return [
         # Only training on control_batch for now
         (control_batch, 8),
-        # (arrow_task_batch, 8),
-        # (qa_task_batch, 8),
+        (arrow_task_batch, 8),
+        (qa_task_batch, 8),
         # (mem_canvas_batch, 4),
         # (blue_line_direction_batch, 4),
         # (gold_direction_batch, 4),
