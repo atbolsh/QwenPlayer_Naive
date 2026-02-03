@@ -21,10 +21,10 @@ from visual_transformer.model import ImageTransformerEncoder, ImageTransformerDe
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
 
 # Input: trained image autoencoder checkpoint (img_enc and img_dec weights)
-NAKED_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "finetune_control_better_embeddings_step_000200.pt")
+NAKED_CHECKPOINT = os.path.join(CHECKPOINT_DIR, "finetune_control_better_embeddings_bf16_step_000200.pt")
 
 # Output: combined frankenstein model
-OUTPUT_PATH = os.path.join(CHECKPOINT_DIR, "frankenstein_finetune_control_better_embeddings_bf16.pt")
+OUTPUT_PATH = os.path.join(CHECKPOINT_DIR, "frankenstein_with_scales_bf16.pt")
 
 # Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
