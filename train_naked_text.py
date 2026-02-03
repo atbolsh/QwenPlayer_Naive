@@ -53,7 +53,7 @@ model.resize_token_embeddings(len(tokenizer))
 # Load from checkpoint if specified
 if LOAD_CHECKPOINT and os.path.exists(LOAD_CHECKPOINT):
     print(f"Loading checkpoint from {LOAD_CHECKPOINT}...")
-    model.load_state_dict(torch.load(LOAD_CHECKPOINT, map_location=device))
+    model.load_state_dict(torch.load(LOAD_CHECKPOINT, map_location=device, weights_only=True))
     print("Checkpoint loaded!")
 else:
     print("Starting fresh (no checkpoint loaded)")

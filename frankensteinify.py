@@ -32,7 +32,7 @@ print(f"Using device: {device}")
 
 # Step 1: Load the trained naked image autoencoder weights
 print(f"Loading naked image autoencoder from {NAKED_CHECKPOINT}...")
-naked_state_dict = torch.load(NAKED_CHECKPOINT, map_location=device)
+naked_state_dict = torch.load(NAKED_CHECKPOINT, map_location=device, weights_only=True)
 print(f"Loaded checkpoint with keys: {list(naked_state_dict.keys())[:10]}...")
 
 # Step 2: Create a brand new QwenAgentPlayer (loads Qwen from HuggingFace)
