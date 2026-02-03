@@ -47,12 +47,17 @@ warnings.filterwarnings('ignore')
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
 # ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/frankenstein_finetune_control_better_embeddings_bf16.pt"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/frankenstein_with_scales_bf16.pt"
+
+# ============================================================
+# EASILY EDITABLE: Save prefix for checkpoints and CSV
+# ============================================================
+DEFAULT_SAVE_PREFIX = "qwen_agent_scales_control_only"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
 DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
-LEDGER_PATH = os.path.join(os.path.dirname(__file__), "training_losses.csv")
+LEDGER_PATH = os.path.join(os.path.dirname(__file__), f"{DEFAULT_SAVE_PREFIX}_losses.csv")
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(DEMO_DIR, exist_ok=True)
 
@@ -339,7 +344,7 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
-    parser.add_argument("--checkpoint_prefix", type=str, default="qwen_agent_finetuned_vision_better_embeddings", help="Checkpoint filename prefix")
+    parser.add_argument("--checkpoint_prefix", type=str, default=DEFAULT_SAVE_PREFIX, help="Checkpoint filename prefix")
     parser.add_argument("--load_checkpoint", type=str, default=DEFAULT_INIT_CHECKPOINT, 
                         help="Path to checkpoint to load (default: DEFAULT_INIT_CHECKPOINT at top of file)")
     
