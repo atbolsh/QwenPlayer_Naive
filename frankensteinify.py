@@ -81,7 +81,7 @@ print("Done!")
 
 # Verify the save
 print("\nVerifying saved checkpoint...")
-loaded_state_dict = torch.load(OUTPUT_PATH, map_location='cpu')
+loaded_state_dict = torch.load(OUTPUT_PATH, map_location='cpu', weights_only=True)
 print(f"Saved checkpoint has {len(loaded_state_dict)} keys")
 print(f"Sample keys: {list(loaded_state_dict.keys())[:5]}...")
 print(f"\nFrankenstein model saved to: {OUTPUT_PATH}")
