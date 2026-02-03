@@ -135,7 +135,12 @@ elif os.path.exists(FRANKENSTEIN_CHECKPOINT):
     print(f"Loading frankenstein checkpoint from {FRANKENSTEIN_CHECKPOINT}...")
 
 if checkpoint_to_load:
-    model.pipe.model.load_state_dict(torch.load(checkpoint_to_load, map_location=device, weights_only=True))
+    # Use strict=False to allow loading old checkpoints that don't have layer_scale_factors
+    # New parameters (like layer_scale_factors) will use their default initialization
+    model.pipe.model.load_state_dict(
+        torch.load(checkpoint_to_load, map_location=device, weights_only=True),
+        strict=False
+    )
     print("Frankenstein checkpoint loaded!")
 else:
     print(f"WARNING: Frankenstein checkpoint not found")
