@@ -239,6 +239,8 @@ def train(
                 curr_mins[task_ind] = avg_loss
                 print(f"  -> New best for task {task_ind}!")
             
+            print("=" * 60)
+            
             # Log to CSV - record average loss for ALL frameworks
             # Use 'inf' for frameworks that haven't been sampled yet
             row = [b + 1]
@@ -268,18 +270,16 @@ def train(
             # Reset canvases before generating demo images to avoid issues
             model.reset()
             
-            # Save demo images for a few representative tasks
-            demo_tasks = [
-                (control_batch, "control", "What do you see?"),
-                # (arrow_task_batch, "arrow", "Draw the path to the gold."),
-                # (imagineWithoutYou_task_batch, "imagine_no_you", "Show me the room without yourself."),
-            ]
-            for demo_func, demo_name, demo_prompt in demo_tasks:
-                try:
-                    input_path, output_path = save_demo_images(model, b + 1, demo_name, demo_prompt)
-                    print(f"Demo images saved: {demo_name}")
-                except Exception as e:
-                    print(f"Error saving demo images for {demo_name}: {e}")
+            # Save demo images for ALL active frameworks
+            print("Saving demo images for active frameworks...")
+            for func, _ in frameworks:
+                if func in FRAMEWORK_DEMO_INFO:
+                    demo_name, demo_prompt = FRAMEWORK_DEMO_INFO[func]
+                    try:
+                        input_path, output_path = save_demo_images(model, b + 1, demo_name, demo_prompt)
+                        print(f"  Demo images saved: {demo_name}")
+                    except Exception as e:
+                        print(f"  Error saving demo images for {demo_name}: {e}")
             
             # Reset canvases after demo images
             model.reset()
@@ -292,18 +292,16 @@ def train(
     # Reset canvases before generating final demo images
     model.reset()
     
-    # Save final demo images
-    print("Saving final demo images...")
-    demo_tasks = [
-        (control_batch, "control", "What do you see?"),
-        # (arrow_task_batch, "arrow", "Draw the path to the gold."),
-        # (imagineWithoutYou_task_batch, "imagine_no_you", "Show me the room without yourself."),
-    ]
-    for demo_func, demo_name, demo_prompt in demo_tasks:
-        try:
-            save_demo_images(model, num_batches, f"final_{demo_name}", demo_prompt)
-        except Exception as e:
-            print(f"Error saving final demo images for {demo_name}: {e}")
+    # Save final demo images for ALL active frameworks
+    print("Saving final demo images for active frameworks...")
+    for func, _ in frameworks:
+        if func in FRAMEWORK_DEMO_INFO:
+            demo_name, demo_prompt = FRAMEWORK_DEMO_INFO[func]
+            try:
+                save_demo_images(model, num_batches, f"final_{demo_name}", demo_prompt)
+                print(f"  Final demo saved: {demo_name}")
+            except Exception as e:
+                print(f"  Error saving final demo images for {demo_name}: {e}")
     
     # Reset canvases after demo images
     model.reset()
@@ -311,10 +309,40 @@ def train(
     return model
 
 
+# ============================================================
+# FRAMEWORK DEMO INFO: Maps framework functions to (name, prompt) for demo images
+# This is the SINGLE SOURCE OF TRUTH for demo image generation
+# ============================================================
+FRAMEWORK_DEMO_INFO = {
+    control_batch: ("control", "What do you see?"),
+    arrow_task_batch: ("arrow", "Draw the path to the gold."),
+    qa_task_batch: ("qa", "What do you see?"),
+    mem_canvas_batch: ("mem_canvas", "What do you see?"),
+    blue_line_direction_batch: ("blue_line", "Which direction is the blue line?"),
+    gold_direction_batch: ("gold_direction", "Which direction is the gold?"),
+    gold_proximity_batch: ("gold_proximity", "How close is the gold?"),
+    please_turn_batch: ("please_turn", "Please turn."),
+    relposition_qa_batch: ("relposition", "Where are you?"),
+    direction_names_batch: ("direction_names", "Name the directions."),
+    zoom_task_batch: ("zoom", "Zoom in."),
+    imagineWithoutYou_task_batch: ("imagine_no_you", "Show me the room without yourself."),
+    imagineWithoutGold_task_batch: ("imagine_no_gold", "Show me the room without the gold."),
+    imagineWithoutWalls_task_batch: ("imagine_no_walls", "Show me the room without walls."),
+    imagineWallsOnly_task_batch: ("imagine_walls_only", "Show me just the walls."),
+    imagineFacingGold_task_batch: ("imagine_facing_gold", "Show me facing the gold."),
+    imagineCloser2Gold_task_batch: ("imagine_closer", "Show me closer to the gold."),
+    imagineAfterMove_task_batch: ("imagine_after_move", "Show me after moving."),
+}
+
+
 def get_default_frameworks() -> List[Tuple[Callable, int]]:
-    """Get default framework configuration."""
+    """
+    Get default framework configuration.
+    
+    Comment/uncomment frameworks here - demo images will automatically
+    be generated for all active frameworks using FRAMEWORK_DEMO_INFO above.
+    """
     return [
-        # Only training on control_batch for now
         (control_batch, 8),
         (arrow_task_batch, 8),
         (qa_task_batch, 8),
