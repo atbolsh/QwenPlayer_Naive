@@ -101,31 +101,61 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
 
     if training and (optimizer is None):
         raise ValueError("Must provide an optimizer if training")
-        
-    S = get_settings_batch(batch_size)
-    imgs = get_images(S)
     
-    texts_wif = willIntersectForward_generator_simple(S)
-    texts_wwt = whichWayTurn_generator_simple(S)
-    texts_wnm = whatNextMove_generator_simple(S)
-
-    ind = (batch_num * batch_size) % num_controls
-    if ind + batch_size > num_controls:
-        ind = num_controls - batch_size
-    control_texts = get_text_batch(sdt, ind, batch_size)
-
-    all_texts = [control_texts, texts_wif, texts_wwt, texts_wnm]
-    text_inds = list(range(4))
+    # Split batch across 4 generators: control + 3 QA tasks
+    n_generators = 4
+    chunk_size = batch_size // n_generators
+    if chunk_size < 1:
+        chunk_size = 1
     
-    if random_order:
-        random.shuffle(text_inds)
-
-    all_probs = [0 for _ in text_inds]
-    for t_ind in text_inds:
-        all_probs[t_ind] = model_forward_with_tokens(model, all_texts[t_ind], imgs, ret_imgs=False)
-
-    all_losses = [get_text_loss(all_probs[i], all_texts[i]) for i in range(4)]
-    loss = sum(all_losses)
+    # Get settings for each QA task (3 chunks)
+    S_wif = get_settings_batch(chunk_size)
+    S_wwt = get_settings_batch(chunk_size)
+    S_wnm = get_settings_batch(chunk_size)
+    
+    # Get images for each chunk
+    imgs_wif = get_images(S_wif)
+    imgs_wwt = get_images(S_wwt)
+    imgs_wnm = get_images(S_wnm)
+    
+    # Generate texts for each chunk using corresponding settings
+    texts_wif = willIntersectForward_generator_simple(S_wif)
+    texts_wwt = whichWayTurn_generator_simple(S_wwt)
+    texts_wnm = whatNextMove_generator_simple(S_wnm)
+    
+    # Get control texts and images
+    ind = (batch_num * chunk_size) % num_controls
+    if ind + chunk_size > num_controls:
+        ind = num_controls - chunk_size
+    control_texts = get_text_batch(sdt, ind, chunk_size)
+    S_control = get_settings_batch(chunk_size)
+    imgs_control = get_images(S_control)
+    
+    # Concatenate all texts and images in consistent order
+    # Order: control, wif, wwt, wnm
+    all_texts = torch.cat([control_texts, texts_wif, texts_wwt, texts_wnm], dim=0)
+    all_imgs = torch.cat([imgs_control, imgs_wif, imgs_wwt, imgs_wnm], dim=0)
+    
+    # Single forward pass with image reconstruction
+    all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_imgs, ret_imgs=True)
+    
+    # Compute text losses for each chunk
+    text_losses = []
+    for i in range(n_generators):
+        start_idx = i * chunk_size
+        end_idx = (i + 1) * chunk_size
+        chunk_probs = all_probs[:, :, start_idx:end_idx]
+        chunk_texts = all_texts[start_idx:end_idx]
+        text_losses.append(get_text_loss(chunk_probs, chunk_texts))
+    
+    # Compute image loss
+    img_loss = img_criterion(all_recon, all_imgs)
+    
+    # Total text loss
+    text_loss = sum(text_losses)
+    
+    # Combined loss (same weighting as control framework)
+    loss = img_loss + (text_loss / 1000)
 
     if training:
         loss.backward()
@@ -134,12 +164,16 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
         model.soft_reset()
 
     if printing:
-        print(f"Total loss: {loss.item()}:\n{all_losses[0].item()} control,\n{all_losses[1].item()} willIntersectForward,\n{all_losses[2].item()} whichWayTurn,\n{all_losses[3].item()} whatNextMove\n\n")
+        print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
+              f"  {text_losses[0].item()} control,\n"
+              f"  {text_losses[1].item()} willIntersectForward,\n"
+              f"  {text_losses[2].item()} whichWayTurn,\n"
+              f"  {text_losses[3].item()} whatNextMove\n")
 
     if reset_model:
         model.reset()
 
-    return (loss.item(), all_losses[0].item(), all_losses[1].item(), all_losses[2].item(), all_losses[3].item())
+    return (loss.item(), text_losses[0].item(), text_losses[1].item(), text_losses[2].item(), text_losses[3].item(), img_loss.item())
 
 
 def relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, compute_grad=False, random_order=True, model_eval=True, reset_model=True, printing=True, training=False, use_lora=False):

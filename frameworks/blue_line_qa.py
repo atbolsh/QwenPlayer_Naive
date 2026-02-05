@@ -81,25 +81,48 @@ def _blue_line_direction_batch(batch_size, model, optimizer=None, batch_num=0, r
     if training and (optimizer is None):
         raise ValueError("Must provide an optimizer if training")
 
-    imgs, task_texts = get_blue_line_direction_data(batch_size)
-        
-    ind = (batch_num * batch_size) % num_controls
-    if ind + batch_size > num_controls:
-        ind = num_controls - batch_size
-    control_texts = get_text_batch(sdt, ind, batch_size)
-
-    all_texts = [control_texts, task_texts]
-    text_inds = list(range(2))
+    # Split batch across 2 generators: control + 1 QA task
+    n_generators = 2
+    chunk_size = batch_size // n_generators
+    if chunk_size < 1:
+        chunk_size = 1
     
-    if random_order:
-        random.shuffle(text_inds)
-
-    all_probs = [0 for _ in text_inds]
-    for t_ind in text_inds:
-        all_probs[t_ind] = model_forward_with_tokens(model, all_texts[t_ind], imgs, ret_imgs=False)
-
-    all_losses = [get_text_loss(all_probs[i], all_texts[i]) for i in range(2)]
-    loss = sum(all_losses)
+    # Get task data (images and texts together)
+    imgs_task, task_texts = get_blue_line_direction_data(chunk_size)
+    
+    # Get control texts and images
+    ind = (batch_num * chunk_size) % num_controls
+    if ind + chunk_size > num_controls:
+        ind = num_controls - chunk_size
+    control_texts = get_text_batch(sdt, ind, chunk_size)
+    S_control = get_settings_batch(chunk_size)
+    imgs_control = get_images(S_control)
+    
+    # Concatenate all texts and images in consistent order
+    # Order: control, task
+    all_texts = torch.cat([control_texts, task_texts], dim=0)
+    all_imgs = torch.cat([imgs_control, imgs_task], dim=0)
+    
+    # Single forward pass with image reconstruction
+    all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_imgs, ret_imgs=True)
+    
+    # Compute text losses for each chunk
+    text_losses = []
+    for i in range(n_generators):
+        start_idx = i * chunk_size
+        end_idx = (i + 1) * chunk_size
+        chunk_probs = all_probs[:, :, start_idx:end_idx]
+        chunk_texts = all_texts[start_idx:end_idx]
+        text_losses.append(get_text_loss(chunk_probs, chunk_texts))
+    
+    # Compute image loss
+    img_loss = img_criterion(all_recon, all_imgs)
+    
+    # Total text loss
+    text_loss = sum(text_losses)
+    
+    # Combined loss (same weighting as control framework)
+    loss = img_loss + (text_loss / 1000)
 
     if training:
         loss.backward()
@@ -108,12 +131,14 @@ def _blue_line_direction_batch(batch_size, model, optimizer=None, batch_num=0, r
         model.soft_reset()
 
     if printing:
-        print(f"Total loss: {loss.item()}:\n{all_losses[0].item()} control,\n{all_losses[1].item()} recognizing the blue line direction\n\n")
+        print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
+              f"  {text_losses[0].item()} control,\n"
+              f"  {text_losses[1].item()} recognizing the blue line direction\n")
 
     if reset_model:
         model.reset()
 
-    return (loss.item(), all_losses[0].item(), all_losses[1].item())
+    return (loss.item(), text_losses[0].item(), text_losses[1].item(), img_loss.item())
 
 
 def blue_line_direction_batch(batch_size, model, optimizer=None, batch_num=0, compute_grad=False, random_order=True, model_eval=True, reset_model=True, printing=True, training=False, use_lora=False):

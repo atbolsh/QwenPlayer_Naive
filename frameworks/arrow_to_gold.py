@@ -55,34 +55,65 @@ def _arrow_task_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
     if training and (optimizer is None):
         raise ValueError("Must provide an optimizer if training")
 
-    inp, out, task_texts = task1_img_sample(batch_size)
-    ind = (batch_num * batch_size) % num_controls
-    if ind + batch_size > num_controls:
-        ind = num_controls - batch_size
-    control_texts = get_text_batch(sdt, ind, batch_size)
-
+    # Split batch across 2 generators: control + 1 task
+    n_generators = 2
+    chunk_size = batch_size // n_generators
+    if chunk_size < 1:
+        chunk_size = 1
+    
+    # Get task data: inp_task -> out_task (with arrow drawn)
+    inp_task, out_task, task_texts = task1_img_sample(chunk_size)
+    
+    # Get control data: inp_control -> inp_control (reconstruction)
+    ind = (batch_num * chunk_size) % num_controls
+    if ind + chunk_size > num_controls:
+        ind = num_controls - chunk_size
+    control_texts = get_text_batch(sdt, ind, chunk_size)
+    
     # Added to fix a small bug
     ct_length = control_texts.size()[1]
     new_length = np.random.randint(6, ct_length)
     control_texts = control_texts[:, :new_length]
-
-    flip = 0
-    if random_order:
-        flip += random.randint(0, 1)
-
-    if flip:
-        task_probs, task_recon = model_forward_with_tokens(model, task_texts, inp, ret_imgs=True)
-        control_probs, control_recon = model_forward_with_tokens(model, control_texts, inp, ret_imgs=True)
-    else:
-        control_probs, control_recon = model_forward_with_tokens(model, control_texts, inp, ret_imgs=True)
-        task_probs, task_recon = model_forward_with_tokens(model, task_texts, inp, ret_imgs=True)
-
-    l1 = img_criterion(task_recon, out)
-    l2 = img_criterion(control_recon, inp)
+    
+    # Generate control images (just for reconstruction, target = input)
+    S_control = get_settings_batch(chunk_size)
+    inp_control = get_images(S_control)
+    
+    # Pad texts to same length for concatenation
+    task_len = task_texts.size()[1]
+    ctrl_len = control_texts.size()[1]
+    max_len = max(task_len, ctrl_len)
+    
+    if task_len < max_len:
+        pad = torch.zeros(chunk_size, max_len - task_len, dtype=task_texts.dtype, device=task_texts.device)
+        task_texts = torch.cat([task_texts, pad], dim=1)
+    if ctrl_len < max_len:
+        pad = torch.zeros(chunk_size, max_len - ctrl_len, dtype=control_texts.dtype, device=control_texts.device)
+        control_texts = torch.cat([control_texts, pad], dim=1)
+    
+    # Concatenate all inputs, targets, and texts in consistent order
+    # Order: control, task
+    all_inputs = torch.cat([inp_control, inp_task], dim=0)
+    all_targets = torch.cat([inp_control, out_task], dim=0)  # control reconstructs input, task outputs arrow
+    all_texts = torch.cat([control_texts, task_texts], dim=0)
+    
+    # Single forward pass with image reconstruction
+    all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_inputs, ret_imgs=True)
+    
+    # Compute image losses for each chunk
+    control_recon = all_recon[:chunk_size]
+    task_recon = all_recon[chunk_size:]
+    l2 = img_criterion(control_recon, inp_control)  # control reconstruction
+    l1 = img_criterion(task_recon, out_task)  # task arrow drawing
     img_loss = l1 + l2
-    tl1 = get_text_loss(task_probs, task_texts)
+    
+    # Compute text losses for each chunk
+    control_probs = all_probs[:, :, :chunk_size]
+    task_probs_slice = all_probs[:, :, chunk_size:]
     tl2 = get_text_loss(control_probs, control_texts)
+    tl1 = get_text_loss(task_probs_slice, task_texts)
     text_loss = tl1 + tl2
+    
     loss = img_loss + (text_loss / 5000)
 
     if training:
@@ -92,12 +123,16 @@ def _arrow_task_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
         model.soft_reset()
     
     if printing:
-        print(f"Total loss: {loss.item()}; that's {l1.item()} task and {l2.item()} recon and {text_loss.item()} total text\n\n")
+        print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
+              f"  {l1.item()} task arrow,\n"
+              f"  {l2.item()} control recon,\n"
+              f"  {tl1.item()} task text,\n"
+              f"  {tl2.item()} control text\n")
 
     if reset_model:
         model.reset()
 
-    return loss.item(), l1.item(), l2.item(), tl1.item(), tl2.item()
+    return loss.item(), l1.item(), l2.item(), tl1.item(), tl2.item(), img_loss.item()
 
 
 def arrow_task_batch(batch_size, model, optimizer=None, batch_num=0, compute_grad=False, random_order=True, model_eval=True, reset_model=True, printing=True, training=False, use_lora=False):
