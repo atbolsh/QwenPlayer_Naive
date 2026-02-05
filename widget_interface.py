@@ -223,10 +223,10 @@ class WidgetInterface:
             # Squeeze batch dimension if present - forward expects (C, H, W) per image
             img_for_forward = local_tensor.squeeze(0) if local_tensor.dim() == 4 else local_tensor
             
-            # Run model forward - returns a dictionary
-            result = self.model.pipe.forward(
+            # Run model forward (QwenAgentPlayer.forward handles canvas storage)
+            result = self.model.forward(
                 text=[text],
-                images=[img_for_forward.to(torch.bfloat16)],
+                image=img_for_forward.to(torch.bfloat16),
                 generate_image=True,
                 return_dict=True,
             )
@@ -270,10 +270,10 @@ class WidgetInterface:
             # Squeeze batch dimension if present - forward expects (C, H, W) per image
             img_for_forward = local_tensor.squeeze(0) if local_tensor.dim() == 4 else local_tensor
             
-            # Run model forward - returns a dictionary
-            result = self.model.pipe.forward(
+            # Run model forward (QwenAgentPlayer.forward handles canvas storage)
+            result = self.model.forward(
                 text=[text],
-                images=[img_for_forward.to(torch.bfloat16)],
+                image=img_for_forward.to(torch.bfloat16),
                 generate_image=True,
                 return_dict=True,
             )

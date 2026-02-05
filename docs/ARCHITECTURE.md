@@ -157,17 +157,43 @@ After each generation:
 
 ## State Management
 
+### Canvas Persistence During Training
+
+**Critical concept**: Canvases persist across training batches to enable tasks that require
+temporal context (e.g., "was that there before?", "what changed?").
+
+In `general_training.py`:
+```python
+reset_model = (b % 3 == 2)  # Only reset every 3rd batch
+```
+
+This means:
+- **2 out of 3 batches**: Canvases persist, allowing the model to reference previous outputs
+- **Every 3rd batch**: Full reset to prevent unbounded memory growth
+
 ### soft_reset()
-Called after each training batch:
-- Clears gradients
-- Keeps canvas history
+Called after each training batch's `loss.backward()`:
+- **Detaches canvas tensors** from computation graph (prevents gradient flow between batches)
+- **Keeps canvas images** as visual context for subsequent batches
 - Preserves model state
 
+This is essential: the canvas *images* remain available as input context, but gradients
+don't propagate across batch boundaries.
+
 ### reset()
-Called between episodes:
+Called periodically (every 3rd batch by default) or between episodes:
 - Clears gradients
-- Clears canvas history
+- **Clears canvas history** (empties the list)
 - Returns model to initial state
+
+### Why This Matters
+
+Many training tasks require the model to reference previous outputs:
+- **Temporal reasoning**: "What was here before?"
+- **Comparison tasks**: "Did the agent move?"
+- **Multi-step imagination**: Building on previous generated images
+
+Without canvas persistence, these tasks would be impossible to train.
 
 ## Training Architecture
 
