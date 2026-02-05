@@ -343,7 +343,7 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
     be generated for all active frameworks using FRAMEWORK_DEMO_INFO above.
     """
     return [
-        (control_batch, 8),
+        (control_batch, 24),
         (arrow_task_batch, 8),
         (qa_task_batch, 8),
         # (mem_canvas_batch, 4),
