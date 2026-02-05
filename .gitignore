@@ -4,3 +4,4 @@ __pycache__
 .env
 demo_images
 brain_checkpoints
+.ipynb_checkpoints
