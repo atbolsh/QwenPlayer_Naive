@@ -48,7 +48,7 @@ warnings.filterwarnings('ignore')
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
 # ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_scales_control_only_batch2000.pth"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_scales_control_only_batch2000_merged.pth"
 
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
@@ -58,6 +58,82 @@ DEFAULT_SAVE_PREFIX = "qwen_agent_scales_control_only_v2"
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
 DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
+
+
+def merge_lora_checkpoint(lora_state_dict: dict, lora_alpha: int = 16, r: int = 4) -> dict:
+    """
+    Convert a LoRA-wrapped checkpoint to a standard (non-LoRA) checkpoint.
+    
+    This merges LoRA weights into base weights using the PEFT formula:
+        W_merged = W_base + (lora_B @ lora_A) * (lora_alpha / r)
+    
+    and converts key names from LoRA format to standard format.
+    
+    Args:
+        lora_state_dict: State dict saved from a model with LoRA applied
+        lora_alpha: LoRA alpha scaling factor (default: 16, matching apply_lora_to_text)
+        r: LoRA rank (default: 4, matching apply_lora_to_text)
+        
+    Returns:
+        Merged state dict compatible with non-LoRA models
+    """
+    merged = {}
+    scaling = lora_alpha / r  # Default: 16/4 = 4
+    
+    # Collect LoRA modules: {module_path: {'base': tensor, 'lora_a': tensor, 'lora_b': tensor}}
+    lora_modules = {}
+    
+    for key, value in lora_state_dict.items():
+        if 'base_layer.weight' in key:
+            module_path = key.replace('.base_layer.weight', '')
+            if module_path not in lora_modules:
+                lora_modules[module_path] = {}
+            lora_modules[module_path]['base'] = value
+        elif 'lora_A.default.weight' in key:
+            module_path = key.replace('.lora_A.default.weight', '')
+            if module_path not in lora_modules:
+                lora_modules[module_path] = {}
+            lora_modules[module_path]['lora_a'] = value
+        elif 'lora_B.default.weight' in key:
+            module_path = key.replace('.lora_B.default.weight', '')
+            if module_path not in lora_modules:
+                lora_modules[module_path] = {}
+            lora_modules[module_path]['lora_b'] = value
+    
+    # Merge LoRA weights into base weights
+    for module_path, components in lora_modules.items():
+        if 'base' in components and 'lora_a' in components and 'lora_b' in components:
+            base = components['base']
+            lora_a = components['lora_a']
+            lora_b = components['lora_b']
+            
+            # Merge using PEFT formula: W = W_base + (lora_B @ lora_A) * scaling
+            delta = (lora_b @ lora_a) * scaling
+            merged_weight = base + delta.to(base.dtype)
+            
+            # Convert key from LoRA format to standard format
+            # qwen_model.base_model.model.model.X -> qwen_model.model.X
+            new_key = module_path.replace('qwen_model.base_model.model.model.', 'qwen_model.model.') + '.weight'
+            merged[new_key] = merged_weight
+        elif 'base' in components:
+            # Has base but no LoRA - just rename key
+            new_key = module_path.replace('qwen_model.base_model.model.model.', 'qwen_model.model.') + '.weight'
+            merged[new_key] = components['base']
+    
+    # Copy non-LoRA keys directly (img_enc, img_dec, layer_scale_factors)
+    for key, value in lora_state_dict.items():
+        if key.startswith('img_enc') or key.startswith('img_dec') or key == 'layer_scale_factors':
+            merged[key] = value
+        elif 'base_model.model.model' in key and 'base_layer' not in key and 'lora_' not in key:
+            # Other qwen keys that aren't wrapped (like layernorm, embed_tokens)
+            new_key = key.replace('qwen_model.base_model.model.model.', 'qwen_model.model.')
+            merged[new_key] = value
+    
+    # Add lm_head (tied to embed_tokens)
+    if 'qwen_model.model.embed_tokens.weight' in merged and 'qwen_model.lm_head.weight' not in merged:
+        merged['qwen_model.lm_head.weight'] = merged['qwen_model.model.embed_tokens.weight']
+    
+    return merged
 LEDGER_PATH = os.path.join(os.path.dirname(__file__), f"{DEFAULT_SAVE_PREFIX}_losses.csv")
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(DEMO_DIR, exist_ok=True)
@@ -163,9 +239,9 @@ def train(
         print_every: Print progress every N batches
         ledger_path: Path to save loss CSV
     """
-    # Apply LoRA if requested
-    if use_lora:
-        model = apply_lora_to_text(model)
+    # NOTE: LoRA is now applied in main() BEFORE checkpoint loading
+    # This is necessary because checkpoints saved with LoRA have different key structure
+    # The use_lora parameter is kept for API compatibility but not used here
     
     # Create optimizer
     optimizer = optim.Adam(model.pipe.model.parameters(), lr=lr, eps=1e-9)
@@ -269,12 +345,25 @@ def train(
         
         # Save checkpoint and demo images
         if (b + 1) % save_every == 0:
+            state_dict = model.pipe.model.state_dict()
+            
+            # Save LoRA checkpoint (or standard if not using LoRA)
             checkpoint_path = os.path.join(
                 CHECKPOINT_DIR, 
                 f"{checkpoint_prefix}_batch{b + 1}.pth"
             )
-            torch.save(model.pipe.model.state_dict(), checkpoint_path)
+            torch.save(state_dict, checkpoint_path)
             print(f"Checkpoint saved: {checkpoint_path}")
+            
+            # If using LoRA, also save a merged version
+            if use_lora:
+                merged_state = merge_lora_checkpoint(state_dict)
+                merged_path = os.path.join(
+                    CHECKPOINT_DIR,
+                    f"{checkpoint_prefix}_merged_batch{b + 1}.pth"
+                )
+                torch.save(merged_state, merged_path)
+                print(f"Merged checkpoint saved: {merged_path}")
             
             # Reset canvases before generating demo images to avoid issues
             model.reset()
@@ -294,9 +383,17 @@ def train(
             model.reset()
     
     # Save final checkpoint
+    state_dict = model.pipe.model.state_dict()
     final_path = os.path.join(CHECKPOINT_DIR, f"{checkpoint_prefix}_final.pth")
-    torch.save(model.pipe.model.state_dict(), final_path)
+    torch.save(state_dict, final_path)
     print(f"Final checkpoint saved: {final_path}")
+    
+    # If using LoRA, also save a merged version
+    if use_lora:
+        merged_state = merge_lora_checkpoint(state_dict)
+        merged_final_path = os.path.join(CHECKPOINT_DIR, f"{checkpoint_prefix}_merged_final.pth")
+        torch.save(merged_state, merged_final_path)
+        print(f"Merged final checkpoint saved: {merged_final_path}")
     
     # Reset canvases before generating final demo images
     model.reset()
@@ -389,7 +486,12 @@ def main():
     
     # Create model
     print("Creating model...")
-    model = create_model(device=device, use_lora=False)  # LoRA applied in train()
+    model = create_model(device=device, use_lora=False)
+    
+    # Apply LoRA BEFORE loading checkpoint (if checkpoint was saved with LoRA)
+    if args.use_lora:
+        print("Applying LoRA adapters before loading checkpoint...")
+        model = apply_lora_to_text(model)
     
     # Load checkpoint if specified (use --load_checkpoint "" to skip)
     # NOTE: Model already has default frankenstein weights from frameworks/general_framework.py import
@@ -398,10 +500,16 @@ def main():
         if os.path.exists(checkpoint_path):
             print(f"Loading checkpoint: {checkpoint_path}")
             # Use strict=False to allow loading old checkpoints without layer_scale_factors
-            model.pipe.model.load_state_dict(
-                torch.load(checkpoint_path, map_location=device, weights_only=True),
-                strict=False
-            )
+            checkpoint_state = torch.load(checkpoint_path, map_location=device, weights_only=True)
+            load_result = model.pipe.model.load_state_dict(checkpoint_state, strict=False)
+            
+            # Diagnostic: show what was loaded
+            if load_result.missing_keys:
+                print(f"  WARNING: Missing keys in checkpoint (using fresh init): {load_result.missing_keys}")
+            if load_result.unexpected_keys:
+                print(f"  INFO: Unexpected keys in checkpoint (ignored): {load_result.unexpected_keys}")
+            if not load_result.missing_keys and not load_result.unexpected_keys:
+                print(f"  All keys matched successfully!")
         else:
             print(f"WARNING: Checkpoint not found: {checkpoint_path}")
             print("Using weights loaded at import time from frameworks/general_framework.py")

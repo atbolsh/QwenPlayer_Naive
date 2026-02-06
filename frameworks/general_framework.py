@@ -120,7 +120,7 @@ print("Loading QwenAgentPlayer...")
 
 # NEW METHOD: Create model and load frankenstein checkpoint (pretrained vision encoder/decoder)
 # Try bf16 checkpoint first, fall back to original
-FRANKENSTEIN_CHECKPOINT_BF16 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "qwen_agent_scales_control_only_batch2000.pth")
+FRANKENSTEIN_CHECKPOINT_BF16 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "qwen_agent_scales_control_only_batch2000_merged.pth")
 FRANKENSTEIN_CHECKPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "first_frankenstein.pt")
 model = create_model(device=device)
 
@@ -137,11 +137,15 @@ elif os.path.exists(FRANKENSTEIN_CHECKPOINT):
 if checkpoint_to_load:
     # Use strict=False to allow loading old checkpoints that don't have layer_scale_factors
     # New parameters (like layer_scale_factors) will use their default initialization
-    model.pipe.model.load_state_dict(
-        torch.load(checkpoint_to_load, map_location=device, weights_only=True),
-        strict=False
-    )
-    print("Frankenstein checkpoint loaded!")
+    checkpoint_state = torch.load(checkpoint_to_load, map_location=device, weights_only=True)
+    load_result = model.pipe.model.load_state_dict(checkpoint_state, strict=False)
+    print("Checkpoint loaded!")
+    
+    # Diagnostic: show what was loaded
+    if load_result.missing_keys:
+        print(f"  WARNING: Missing keys (using fresh init): {load_result.missing_keys}")
+    if load_result.unexpected_keys:
+        print(f"  INFO: Unexpected keys (ignored): {load_result.unexpected_keys}")
 else:
     print(f"WARNING: Frankenstein checkpoint not found")
     print("Using fresh model weights. Run frankensteinify.py first to create the checkpoint.")
