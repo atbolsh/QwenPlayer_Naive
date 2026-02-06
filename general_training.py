@@ -53,7 +53,7 @@ DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_scales_control_only_batc
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "qwen_agent_scales_control_plus"
+DEFAULT_SAVE_PREFIX = "qwen_agent_scales_control_only_v2"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -353,8 +353,8 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
     """
     return [
         (control_batch, 24),
-        (arrow_task_batch, 8),
-        (qa_task_batch, 8),
+        # (arrow_task_batch, 8),
+        # (qa_task_batch, 8),
         # (mem_canvas_batch, 4),
         # (blue_line_direction_batch, 4),
         # (gold_direction_batch, 4),
