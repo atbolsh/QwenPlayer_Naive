@@ -16,6 +16,7 @@ import warnings
 from typing import List, Tuple, Callable, Optional
 
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.utils import save_image
 
@@ -66,6 +67,9 @@ def save_demo_images(model, step: int, task_name: str, prompt: str = "What do yo
     """
     Save sample input/output images for a given task.
     
+    Images are saved at 4x resolution (896x896) using nearest-neighbor upscaling
+    to preserve sharp pixel boundaries without blurring.
+    
     Args:
         model: QwenAgentPlayer instance
         step: Current training step (for filename)
@@ -87,9 +91,14 @@ def save_demo_images(model, step: int, task_name: str, prompt: str = "What do yo
         input_path = os.path.join(DEMO_DIR, f"step_{step:06d}_{safe_task_name}_input.png")
         output_path = os.path.join(DEMO_DIR, f"step_{step:06d}_{safe_task_name}_output.png")
         
-        save_image(img[0].float(), input_path)
+        # Scale up 4x using nearest-neighbor (no blurring/interpolation)
+        # This preserves sharp pixel boundaries for easier defect inspection
+        img_scaled = F.interpolate(img.float(), scale_factor=4, mode='nearest')
+        save_image(img_scaled[0], input_path)
+        
         if img_recon is not None:
-            save_image(img_recon[0].float().clamp(0, 1), output_path)
+            recon_scaled = F.interpolate(img_recon.float().clamp(0, 1), scale_factor=4, mode='nearest')
+            save_image(recon_scaled[0], output_path)
         
     model.pipe.model.train()
     model.reset()
