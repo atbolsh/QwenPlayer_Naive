@@ -454,35 +454,80 @@ def main():
     
     args = parser.parse_args()
     
-    # Create model
-    print("Creating model...")
-    model = create_model(device=device, use_lora=False)
+    # Helper to detect if checkpoint is LoRA format
+    def is_lora_checkpoint(state_dict):
+        for key in state_dict.keys():
+            if 'lora_A' in key or 'lora_B' in key or 'base_layer' in key:
+                return True
+        return False
     
-    # Apply LoRA BEFORE loading checkpoint (if checkpoint was saved with LoRA)
-    if args.use_lora:
-        print("Applying LoRA adapters before loading checkpoint...")
-        model = apply_lora_to_text(model)
-    
-    # Load checkpoint if specified (use --load_checkpoint "" to skip)
-    # NOTE: Model already has default frankenstein weights from frameworks/general_framework.py import
+    # Load and inspect checkpoint first (if specified)
+    checkpoint_state = None
+    checkpoint_is_lora = False
     if args.load_checkpoint and args.load_checkpoint.strip():
         checkpoint_path = args.load_checkpoint
         if os.path.exists(checkpoint_path):
             print(f"Loading checkpoint: {checkpoint_path}")
-            # Use strict=False to allow loading old checkpoints without layer_scale_factors
             checkpoint_state = torch.load(checkpoint_path, map_location=device, weights_only=True)
-            load_result = model.pipe.model.load_state_dict(checkpoint_state, strict=False)
-            
-            # Diagnostic: show what was loaded
-            if load_result.missing_keys:
-                print(f"  WARNING: Missing keys in checkpoint (using fresh init): {load_result.missing_keys}")
-            if load_result.unexpected_keys:
-                print(f"  INFO: Unexpected keys in checkpoint (ignored): {load_result.unexpected_keys}")
-            if not load_result.missing_keys and not load_result.unexpected_keys:
-                print(f"  All keys matched successfully!")
+            checkpoint_is_lora = is_lora_checkpoint(checkpoint_state)
+            print(f"  Checkpoint format: {'LoRA' if checkpoint_is_lora else 'non-LoRA'}")
         else:
             print(f"WARNING: Checkpoint not found: {checkpoint_path}")
             print("Using weights loaded at import time from frameworks/general_framework.py")
+    
+    # Handle all 4 cases:
+    # 1) Non-LoRA checkpoint + --use_lora → Load, then apply LoRA
+    # 2) LoRA checkpoint + --use_lora → Apply LoRA first, then load directly
+    # 3) Non-LoRA checkpoint + no --use_lora → Load and train normally
+    # 4) LoRA checkpoint + no --use_lora → Merge weights, warn, train without LoRA
+    
+    print("Creating model...")
+    model = create_model(device=device, use_lora=False)
+    
+    if checkpoint_state is not None:
+        if checkpoint_is_lora and args.use_lora:
+            # Case 2: LoRA checkpoint + --use_lora → Apply LoRA first, then load
+            print("Case 2: LoRA checkpoint with --use_lora")
+            print("  Applying LoRA adapters first...")
+            model = apply_lora_to_text(model)
+            print("  Loading LoRA checkpoint...")
+            load_result = model.pipe.model.load_state_dict(checkpoint_state, strict=False)
+            
+        elif checkpoint_is_lora and not args.use_lora:
+            # Case 4: LoRA checkpoint + no --use_lora → Merge and train without LoRA
+            print("=" * 60)
+            print("NOTICE: LoRA checkpoint detected but --use_lora not set!")
+            print("Merging LoRA weights into base model for non-LoRA training.")
+            print("=" * 60)
+            merged_state = merge_lora_checkpoint(checkpoint_state)
+            print(f"  Merged {len(checkpoint_state)} LoRA keys → {len(merged_state)} standard keys")
+            load_result = model.pipe.model.load_state_dict(merged_state, strict=False)
+            
+        elif not checkpoint_is_lora and args.use_lora:
+            # Case 1: Non-LoRA checkpoint + --use_lora → Load first, then apply LoRA
+            print("Case 1: Non-LoRA checkpoint with --use_lora")
+            print("  Loading non-LoRA checkpoint first...")
+            load_result = model.pipe.model.load_state_dict(checkpoint_state, strict=False)
+            print("  Applying LoRA adapters on top of loaded weights...")
+            model = apply_lora_to_text(model)
+            
+        else:
+            # Case 3: Non-LoRA checkpoint + no --use_lora → Simple load
+            print("Case 3: Non-LoRA checkpoint without --use_lora")
+            load_result = model.pipe.model.load_state_dict(checkpoint_state, strict=False)
+        
+        # Diagnostic output
+        if load_result.missing_keys:
+            print(f"  WARNING: Missing keys (first 5): {load_result.missing_keys[:5]}...")
+        if load_result.unexpected_keys:
+            print(f"  INFO: Unexpected keys (first 5): {load_result.unexpected_keys[:5]}...")
+        if not load_result.missing_keys and not load_result.unexpected_keys:
+            print(f"  All keys matched successfully!")
+    
+    elif args.use_lora:
+        # No checkpoint but --use_lora requested
+        print("No checkpoint specified, applying LoRA to fresh model...")
+        model = apply_lora_to_text(model)
     
     # Get default frameworks
     frameworks = get_default_frameworks()
