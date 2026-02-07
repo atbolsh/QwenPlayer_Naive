@@ -1,0 +1,14 @@
+#!/bin/bash
+# Usage: ./ssh2scp.sh "ssh -p PORT user@host ..." local_file remote_path
+
+ssh_cmd="$1"
+local_file="$2"
+remote_path="$3"
+
+# Extract port (after -p)
+port=$(echo "$ssh_cmd" | grep -oP '(?<=-p\s)\d+')
+
+# Extract user@host
+userhost=$(echo "$ssh_cmd" | grep -oP '\S+@\S+' | head -1)
+
+echo "scp -P $port $local_file $userhost:$remote_path"
