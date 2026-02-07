@@ -108,10 +108,11 @@ def _arrow_task_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
     img_loss = l1 + l2
     
     # Compute text losses for each chunk
-    control_probs = all_probs[:, :, :chunk_size]
-    task_probs_slice = all_probs[:, :, chunk_size:]
+    # all_probs has shape (batch, vocab, seq_len) - slice on batch dimension (dim 0)
+    control_probs = all_probs[:chunk_size, :, :]
+    task_probs = all_probs[chunk_size:, :, :]
     tl2 = get_text_loss(control_probs, control_texts)
-    tl1 = get_text_loss(task_probs_slice, task_texts)
+    tl1 = get_text_loss(task_probs, task_texts)
     text_loss = tl1 + tl2
     
     loss = img_loss + (text_loss / 5000)

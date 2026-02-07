@@ -172,20 +172,31 @@ def _qa_task_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
     S_control = get_settings_batch(chunk_size)
     imgs_control = get_images(S_control)
     
+    # Pad all texts to the same length before concatenation
+    text_list = [control_texts, texts_lrg, texts_udg, texts_lra, texts_uda]
+    max_len = max(t.size(1) for t in text_list)
+    padded_texts = []
+    for t in text_list:
+        if t.size(1) < max_len:
+            pad = torch.zeros(t.size(0), max_len - t.size(1), dtype=t.dtype, device=t.device)
+            t = torch.cat([t, pad], dim=1)
+        padded_texts.append(t)
+    
     # Concatenate all texts and images in consistent order
     # Order: control, lrg, udg, lra, uda
-    all_texts = torch.cat([control_texts, texts_lrg, texts_udg, texts_lra, texts_uda], dim=0)
+    all_texts = torch.cat(padded_texts, dim=0)
     all_imgs = torch.cat([imgs_control, imgs_lrg, imgs_udg, imgs_lra, imgs_uda], dim=0)
     
     # Single forward pass with image reconstruction
     all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_imgs, ret_imgs=True)
     
     # Compute text losses for each chunk
+    # all_probs has shape (batch, vocab, seq_len) - slice on batch dimension (dim 0)
     text_losses = []
     for i in range(n_generators):
         start_idx = i * chunk_size
         end_idx = (i + 1) * chunk_size
-        chunk_probs = all_probs[:, :, start_idx:end_idx]
+        chunk_probs = all_probs[start_idx:end_idx, :, :]
         chunk_texts = all_texts[start_idx:end_idx]
         text_losses.append(get_text_loss(chunk_probs, chunk_texts))
     
