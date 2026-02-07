@@ -53,7 +53,7 @@ DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_scales_control_only_batc
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "qwen_agent_scales_control_only_v2"
+DEFAULT_SAVE_PREFIX = "qwen_agent_control_arrow_qa"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -387,26 +387,26 @@ def train(
 
 # ============================================================
 # FRAMEWORK DEMO INFO: Maps framework functions to (name, prompt) for demo images
-# This is the SINGLE SOURCE OF TRUTH for demo image generation
+# Names match the framework file names (without .py) for easy identification
 # ============================================================
 FRAMEWORK_DEMO_INFO = {
     control_batch: ("control", "What do you see?"),
-    arrow_task_batch: ("arrow", "Draw the path to the gold."),
-    qa_task_batch: ("qa", "What do you see?"),
-    mem_canvas_batch: ("mem_canvas", "What do you see?"),
-    blue_line_direction_batch: ("blue_line", "Which direction is the blue line?"),
-    gold_direction_batch: ("gold_direction", "Which direction is the gold?"),
-    gold_proximity_batch: ("gold_proximity", "How close is the gold?"),
-    please_turn_batch: ("please_turn", "Please turn."),
-    relposition_qa_batch: ("relposition", "Where are you?"),
+    arrow_task_batch: ("arrow_to_gold", "Draw the path to the gold."),
+    qa_task_batch: ("position_qa", "What do you see?"),
+    mem_canvas_batch: ("mem_canvas_use", "What do you see?"),
+    blue_line_direction_batch: ("blue_line_qa", "Which direction is the blue line?"),
+    gold_direction_batch: ("gold_direction_qa", "Which direction is the gold?"),
+    gold_proximity_batch: ("near_gold_qa", "How close is the gold?"),
+    please_turn_batch: ("please_turn_qa", "Please turn."),
+    relposition_qa_batch: ("relposition_qa", "Where are you?"),
     direction_names_batch: ("direction_names", "Name the directions."),
     zoom_task_batch: ("zoom", "Zoom in."),
-    imagineWithoutYou_task_batch: ("imagine_no_you", "Show me the room without yourself."),
-    imagineWithoutGold_task_batch: ("imagine_no_gold", "Show me the room without the gold."),
-    imagineWithoutWalls_task_batch: ("imagine_no_walls", "Show me the room without walls."),
+    imagineWithoutYou_task_batch: ("imagine_without_you", "Show me the room without yourself."),
+    imagineWithoutGold_task_batch: ("imagine_without_gold", "Show me the room without the gold."),
+    imagineWithoutWalls_task_batch: ("imagine_without_walls", "Show me the room without walls."),
     imagineWallsOnly_task_batch: ("imagine_walls_only", "Show me just the walls."),
     imagineFacingGold_task_batch: ("imagine_facing_gold", "Show me facing the gold."),
-    imagineCloser2Gold_task_batch: ("imagine_closer", "Show me closer to the gold."),
+    imagineCloser2Gold_task_batch: ("imagine_closer_to_gold", "Show me closer to the gold."),
     imagineAfterMove_task_batch: ("imagine_after_move", "Show me after moving."),
 }
 
@@ -419,9 +419,9 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
     be generated for all active frameworks using FRAMEWORK_DEMO_INFO above.
     """
     return [
-        (control_batch, 24),
-        # (arrow_task_batch, 8),
-        # (qa_task_batch, 8),
+        (control_batch, 8),
+        (arrow_task_batch, 8),
+        (qa_task_batch, 8),
         # (mem_canvas_batch, 4),
         # (blue_line_direction_batch, 4),
         # (gold_direction_batch, 4),
