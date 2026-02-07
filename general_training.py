@@ -62,12 +62,12 @@ DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
 
 def merge_lora_checkpoint(lora_state_dict: dict, lora_alpha: int = 16, r: int = 4) -> dict:
     """
-    Convert a LoRA-wrapped checkpoint to a standard (non-LoRA) checkpoint.
+    Convert a LoRA-wrapped checkpoint to a standard (non-LoRA) checkpoint
+    using PEFT's official merge_and_unload() method.
     
-    This merges LoRA weights into base weights using the PEFT formula:
-        W_merged = W_base + (lora_B @ lora_A) * (lora_alpha / r)
-    
-    and converts key names from LoRA format to standard format.
+    This creates a temporary model, loads the LoRA checkpoint, calls PEFT's
+    merge_and_unload() to properly merge LoRA weights, then extracts the
+    merged state dict.
     
     Args:
         lora_state_dict: State dict saved from a model with LoRA applied
@@ -77,61 +77,31 @@ def merge_lora_checkpoint(lora_state_dict: dict, lora_alpha: int = 16, r: int = 
     Returns:
         Merged state dict compatible with non-LoRA models
     """
+    # Create a fresh model with LoRA to use PEFT's merge functionality
+    temp_model = create_model(use_lora=True)
+    
+    # Load the LoRA state dict into the model
+    temp_model.pipe.model.load_state_dict(lora_state_dict, strict=False)
+    
+    # Use PEFT's merge_and_unload on the qwen_model (the part with LoRA)
+    # This properly merges LoRA weights into the base weights
+    merged_qwen = temp_model.pipe.model.qwen_model.merge_and_unload()
+    
+    # Rebuild the full state dict with merged qwen weights
     merged = {}
-    scaling = lora_alpha / r  # Default: 16/4 = 4
     
-    # Collect LoRA modules: {module_path: {'base': tensor, 'lora_a': tensor, 'lora_b': tensor}}
-    lora_modules = {}
+    # Add qwen model weights (now merged, with standard key names)
+    for key, value in merged_qwen.state_dict().items():
+        merged[f'qwen_model.{key}'] = value
     
-    for key, value in lora_state_dict.items():
-        if 'base_layer.weight' in key:
-            module_path = key.replace('.base_layer.weight', '')
-            if module_path not in lora_modules:
-                lora_modules[module_path] = {}
-            lora_modules[module_path]['base'] = value
-        elif 'lora_A.default.weight' in key:
-            module_path = key.replace('.lora_A.default.weight', '')
-            if module_path not in lora_modules:
-                lora_modules[module_path] = {}
-            lora_modules[module_path]['lora_a'] = value
-        elif 'lora_B.default.weight' in key:
-            module_path = key.replace('.lora_B.default.weight', '')
-            if module_path not in lora_modules:
-                lora_modules[module_path] = {}
-            lora_modules[module_path]['lora_b'] = value
-    
-    # Merge LoRA weights into base weights
-    for module_path, components in lora_modules.items():
-        if 'base' in components and 'lora_a' in components and 'lora_b' in components:
-            base = components['base']
-            lora_a = components['lora_a']
-            lora_b = components['lora_b']
-            
-            # Merge using PEFT formula: W = W_base + (lora_B @ lora_A) * scaling
-            delta = (lora_b @ lora_a) * scaling
-            merged_weight = base + delta.to(base.dtype)
-            
-            # Convert key from LoRA format to standard format
-            # qwen_model.base_model.model.model.X -> qwen_model.model.X
-            new_key = module_path.replace('qwen_model.base_model.model.model.', 'qwen_model.model.') + '.weight'
-            merged[new_key] = merged_weight
-        elif 'base' in components:
-            # Has base but no LoRA - just rename key
-            new_key = module_path.replace('qwen_model.base_model.model.model.', 'qwen_model.model.') + '.weight'
-            merged[new_key] = components['base']
-    
-    # Copy non-LoRA keys directly (img_enc, img_dec, layer_scale_factors)
+    # Add non-LoRA components from original state dict
     for key, value in lora_state_dict.items():
         if key.startswith('img_enc') or key.startswith('img_dec') or key == 'layer_scale_factors':
             merged[key] = value
-        elif 'base_model.model.model' in key and 'base_layer' not in key and 'lora_' not in key:
-            # Other qwen keys that aren't wrapped (like layernorm, embed_tokens)
-            new_key = key.replace('qwen_model.base_model.model.model.', 'qwen_model.model.')
-            merged[new_key] = value
     
-    # Add lm_head (tied to embed_tokens)
-    if 'qwen_model.model.embed_tokens.weight' in merged and 'qwen_model.lm_head.weight' not in merged:
-        merged['qwen_model.lm_head.weight'] = merged['qwen_model.model.embed_tokens.weight']
+    # Clean up
+    del temp_model
+    torch.cuda.empty_cache()
     
     return merged
 LEDGER_PATH = os.path.join(os.path.dirname(__file__), f"{DEFAULT_SAVE_PREFIX}_losses.csv")

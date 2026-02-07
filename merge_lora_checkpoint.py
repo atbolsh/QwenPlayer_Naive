@@ -2,9 +2,8 @@
 """
 Merge LoRA Checkpoint Script
 
-Converts a LoRA-wrapped checkpoint to a standard (non-LoRA) checkpoint by
-merging LoRA weights into base weights using the PEFT formula:
-    W_merged = W_base + (lora_B @ lora_A) * (lora_alpha / r)
+Converts a LoRA-wrapped checkpoint to a standard (non-LoRA) checkpoint
+using PEFT's official merge_and_unload() method for correctness.
 
 Usage:
     python merge_lora_checkpoint.py input_checkpoint.pth output_checkpoint.pth
@@ -14,6 +13,9 @@ Usage:
     
     # With custom LoRA parameters:
     python merge_lora_checkpoint.py input.pth output.pth --lora_alpha 32 --r 8
+
+Note: This script uses PEFT's merge_and_unload() internally, which creates
+a temporary model to properly merge LoRA weights. This requires GPU access.
 """
 
 import argparse
@@ -80,10 +82,9 @@ def main():
         print("Checkpoint may already be in standard format.")
         return
     
-    # Merge
-    print("\nMerging LoRA weights...")
-    scaling = args.lora_alpha / args.r
-    print(f"Using scaling factor: {scaling} (lora_alpha={args.lora_alpha}, r={args.r})")
+    # Merge using PEFT's merge_and_unload()
+    print("\nMerging LoRA weights using PEFT's merge_and_unload()...")
+    print(f"LoRA config: lora_alpha={args.lora_alpha}, r={args.r}")
     merged = merge_lora_checkpoint(state_dict, lora_alpha=args.lora_alpha, r=args.r)
     print(f"Merged checkpoint has {len(merged)} keys")
     
