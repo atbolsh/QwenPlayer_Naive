@@ -92,27 +92,27 @@ def _arrow_task_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
         control_texts = torch.cat([control_texts, pad], dim=1)
     
     # Concatenate all inputs, targets, and texts in consistent order
-    # Order: control, task
-    all_inputs = torch.cat([inp_control, inp_task], dim=0)
-    all_targets = torch.cat([inp_control, out_task], dim=0)  # control reconstructs input, task outputs arrow
-    all_texts = torch.cat([control_texts, task_texts], dim=0)
+    # Order: task, control (task first so demo images show task output)
+    all_inputs = torch.cat([inp_task, inp_control], dim=0)
+    all_targets = torch.cat([out_task, inp_control], dim=0)  # task outputs arrow, control reconstructs input
+    all_texts = torch.cat([task_texts, control_texts], dim=0)
     
     # Single forward pass with image reconstruction
     all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_inputs, ret_imgs=True)
     
     # Compute image losses for each chunk
-    control_recon = all_recon[:chunk_size]
-    task_recon = all_recon[chunk_size:]
-    l2 = img_criterion(control_recon, inp_control)  # control reconstruction
+    task_recon = all_recon[:chunk_size]
+    control_recon = all_recon[chunk_size:]
     l1 = img_criterion(task_recon, out_task)  # task arrow drawing
+    l2 = img_criterion(control_recon, inp_control)  # control reconstruction
     img_loss = l1 + l2
     
     # Compute text losses for each chunk
     # all_probs has shape (batch, vocab, seq_len) - slice on batch dimension (dim 0)
-    control_probs = all_probs[:chunk_size, :, :]
-    task_probs = all_probs[chunk_size:, :, :]
-    tl2 = get_text_loss(control_probs, control_texts)
+    task_probs = all_probs[:chunk_size, :, :]
+    control_probs = all_probs[chunk_size:, :, :]
     tl1 = get_text_loss(task_probs, task_texts)
+    tl2 = get_text_loss(control_probs, control_texts)
     text_loss = tl1 + tl2
     
     loss = img_loss + (text_loss / 5000)

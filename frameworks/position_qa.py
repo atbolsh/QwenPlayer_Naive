@@ -173,7 +173,8 @@ def _qa_task_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
     imgs_control = get_images(S_control)
     
     # Pad all texts to the same length before concatenation
-    text_list = [control_texts, texts_lrg, texts_udg, texts_lra, texts_uda]
+    # Order: lrg, udg, lra, uda, control (task first so demo images show task output)
+    text_list = [texts_lrg, texts_udg, texts_lra, texts_uda, control_texts]
     max_len = max(t.size(1) for t in text_list)
     padded_texts = []
     for t in text_list:
@@ -183,9 +184,9 @@ def _qa_task_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
         padded_texts.append(t)
     
     # Concatenate all texts and images in consistent order
-    # Order: control, lrg, udg, lra, uda
+    # Order: lrg, udg, lra, uda, control (task first so demo images show task output)
     all_texts = torch.cat(padded_texts, dim=0)
-    all_imgs = torch.cat([imgs_control, imgs_lrg, imgs_udg, imgs_lra, imgs_uda], dim=0)
+    all_imgs = torch.cat([imgs_lrg, imgs_udg, imgs_lra, imgs_uda, imgs_control], dim=0)
     
     # Single forward pass with image reconstruction
     all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_imgs, ret_imgs=True)
@@ -217,11 +218,11 @@ def _qa_task_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
 
     if printing:
         print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
-              f"  {text_losses[0].item()} control,\n"
-              f"  {text_losses[1].item()} lrg,\n"
-              f"  {text_losses[2].item()} udg,\n"
-              f"  {text_losses[3].item()} lra,\n"
-              f"  {text_losses[4].item()} uda\n")
+              f"  {text_losses[0].item()} lrg,\n"
+              f"  {text_losses[1].item()} udg,\n"
+              f"  {text_losses[2].item()} lra,\n"
+              f"  {text_losses[3].item()} uda,\n"
+              f"  {text_losses[4].item()} control\n")
 
     if reset_model:
         model.reset()

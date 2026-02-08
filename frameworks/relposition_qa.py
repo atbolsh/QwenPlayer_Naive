@@ -132,7 +132,8 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
     imgs_control = get_images(S_control)
     
     # Pad all texts to the same length before concatenation
-    text_list = [control_texts, texts_wif, texts_wwt, texts_wnm]
+    # Order: wif, wwt, wnm, control (task first so demo images show task output)
+    text_list = [texts_wif, texts_wwt, texts_wnm, control_texts]
     max_len = max(t.size(1) for t in text_list)
     padded_texts = []
     for t in text_list:
@@ -142,9 +143,9 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
         padded_texts.append(t)
     
     # Concatenate all texts and images in consistent order
-    # Order: control, wif, wwt, wnm
+    # Order: wif, wwt, wnm, control (task first so demo images show task output)
     all_texts = torch.cat(padded_texts, dim=0)
-    all_imgs = torch.cat([imgs_control, imgs_wif, imgs_wwt, imgs_wnm], dim=0)
+    all_imgs = torch.cat([imgs_wif, imgs_wwt, imgs_wnm, imgs_control], dim=0)
     
     # Single forward pass with image reconstruction
     all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_imgs, ret_imgs=True)
@@ -176,10 +177,10 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
 
     if printing:
         print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
-              f"  {text_losses[0].item()} control,\n"
-              f"  {text_losses[1].item()} willIntersectForward,\n"
-              f"  {text_losses[2].item()} whichWayTurn,\n"
-              f"  {text_losses[3].item()} whatNextMove\n")
+              f"  {text_losses[0].item()} willIntersectForward,\n"
+              f"  {text_losses[1].item()} whichWayTurn,\n"
+              f"  {text_losses[2].item()} whatNextMove,\n"
+              f"  {text_losses[3].item()} control\n")
 
     if reset_model:
         model.reset()
