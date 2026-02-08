@@ -126,7 +126,7 @@ def save_demo_images(model, step: int, task_name: str, prompt: str = "What do yo
     model.pipe.model.eval()
     with torch.no_grad():
         # Generate a game image (bf16)
-        settings = G.random_bare_settings(gameSize=224)
+        settings = G.random_bare_settings(gameSize=224, max_agent_offset=2.0)
         img = get_images([settings], device=device)
         
         # Run model forward

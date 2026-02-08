@@ -192,7 +192,7 @@ def get_text_batch(dataset, ind, batch_size, target_device=None):
 # Game utilities
 ########
 
-def get_settings_batch(batch_size, bare=True, restrict_angles=True, max_agent_offset=0.9):
+def get_settings_batch(batch_size, bare=True, restrict_angles=True, max_agent_offset=2.0):
     """
     Generate a batch of game settings.
     
@@ -201,7 +201,7 @@ def get_settings_batch(batch_size, bare=True, restrict_angles=True, max_agent_of
         bare: If True, use bare settings (no extra walls, 1 gold)
         restrict_angles: Whether to restrict wall angles
         max_agent_offset: Max distance from agent to gold (in game-widths, 0-1 normalized).
-                         0.9 allows gold almost anywhere on the map.
+                         2.0 ensures gold can appear anywhere on the map (box always covers full game area).
     """
     if bare:
         return [G.random_bare_settings(gameSize=224, max_agent_offset=max_agent_offset) for i in range(batch_size)]
