@@ -48,12 +48,13 @@ warnings.filterwarnings('ignore')
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
 # ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_scales_control_only_batch2000_merged.pth"
+#DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_scales_control_only_batch2000_merged.pth"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_control_arrow_qa_batch62000.pth"
 
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "qwen_agent_control_arrow_qa"
+DEFAULT_SAVE_PREFIX = "qwen_agent_non_imagine"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -422,14 +423,14 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
         (control_batch, 8),
         (arrow_task_batch, 8),
         (qa_task_batch, 8),
-        # (mem_canvas_batch, 4),
-        # (blue_line_direction_batch, 4),
-        # (gold_direction_batch, 4),
-        # (gold_proximity_batch, 4),
-        # (please_turn_batch, 4),
-        # (relposition_qa_batch, 4),
-        # (direction_names_batch, 4),
-        # (zoom_task_batch, 2),
+        (mem_canvas_batch, 4),
+        (blue_line_direction_batch, 4),
+        (gold_direction_batch, 4),
+        (gold_proximity_batch, 4),
+        (please_turn_batch, 4),
+        (relposition_qa_batch, 4),
+        (direction_names_batch, 4),
+        (zoom_task_batch, 2),
         # (imagineWithoutYou_task_batch, 2),
         # (imagineWithoutGold_task_batch, 2),
         # (imagineWithoutWalls_task_batch, 2),
@@ -444,7 +445,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train QwenAgentPlayer")
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA adapters")
     parser.add_argument("--num_batches", type=int, default=10000000000, help="Number of training batches")
-    parser.add_argument("--batch_size", type=int, default=70, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=60, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
