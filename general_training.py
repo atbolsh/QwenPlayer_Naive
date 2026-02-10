@@ -446,7 +446,7 @@ def main():
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA adapters")
     parser.add_argument("--num_batches", type=int, default=10000000000, help="Number of training batches")
     parser.add_argument("--batch_size", type=int, default=60, help="Batch size")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=3e-5, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
     parser.add_argument("--checkpoint_prefix", type=str, default=DEFAULT_SAVE_PREFIX, help="Checkpoint filename prefix")
