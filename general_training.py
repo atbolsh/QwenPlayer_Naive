@@ -62,6 +62,21 @@ CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
 DEMO_DIR = os.path.join(os.path.dirname(__file__), "demo_images")
 
 
+def _convert_checkpoint_bf16_to_float32(state_dict: dict) -> dict:
+    """
+    Convert bf16 tensors in a state dict to float32 for backwards compatibility
+    with checkpoints saved before the float32 migration.
+    """
+    converted_count = 0
+    for k in list(state_dict.keys()):
+        if state_dict[k].dtype == torch.bfloat16:
+            state_dict[k] = state_dict[k].float()
+            converted_count += 1
+    if converted_count > 0:
+        print(f"  Backwards compatibility: converted {converted_count} bf16 tensors to float32")
+    return state_dict
+
+
 def merge_lora_checkpoint(lora_state_dict: dict, lora_alpha: int = 16, r: int = 4) -> dict:
     """
     Convert a LoRA-wrapped checkpoint to a standard (non-LoRA) checkpoint
@@ -79,6 +94,9 @@ def merge_lora_checkpoint(lora_state_dict: dict, lora_alpha: int = 16, r: int = 
     Returns:
         Merged state dict compatible with non-LoRA models
     """
+    # Backwards compatibility: convert bf16 to float32 if needed
+    lora_state_dict = {k: v.float() if v.dtype == torch.bfloat16 else v for k, v in lora_state_dict.items()}
+    
     # Create a fresh model with LoRA to use PEFT's merge functionality
     temp_model = create_model(use_lora=True)
     
@@ -471,10 +489,8 @@ def main():
         if os.path.exists(checkpoint_path):
             print(f"Loading checkpoint: {checkpoint_path}")
             checkpoint_state = torch.load(checkpoint_path, map_location=device, weights_only=True)
-            # Convert bf16 to float32 for training
-            for k in list(checkpoint_state.keys()):
-                if checkpoint_state[k].dtype == torch.bfloat16:
-                    checkpoint_state[k] = checkpoint_state[k].float()
+            # Backwards compatibility: convert bf16 to float32 for old checkpoints
+            _convert_checkpoint_bf16_to_float32(checkpoint_state)
             checkpoint_is_lora = is_lora_checkpoint(checkpoint_state)
             print(f"  Checkpoint format: {'LoRA' if checkpoint_is_lora else 'non-LoRA'}")
         else:
