@@ -260,7 +260,12 @@ def train(
     print(f"Repetition weights: {repetitions}")
     print(f"LoRA: {use_lora}")
     print(f"Loss ledger: {ledger_path}")
+    print(f"Enduring checkpoints every {10 * save_every} batches")
     print("=" * 50)
+    
+    prev_checkpoint_path = None
+    prev_checkpoint_batch = None
+    prev_merged_path = None
     
     for b in range(num_batches):
         # Sample a task
@@ -343,9 +348,11 @@ def train(
                 f"{checkpoint_prefix}_batch{b + 1}.pth"
             )
             torch.save(state_dict, checkpoint_path)
-            print(f"Checkpoint saved: {checkpoint_path}")
+            is_enduring = (b + 1) % (10 * save_every) == 0
+            print(f"Checkpoint saved: {checkpoint_path}" + (" (enduring)" if is_enduring else ""))
             
             # If using LoRA, also save a merged version
+            merged_path = None
             if use_lora:
                 merged_state = merge_lora_checkpoint(state_dict)
                 merged_path = os.path.join(
@@ -354,6 +361,20 @@ def train(
                 )
                 torch.save(merged_state, merged_path)
                 print(f"Merged checkpoint saved: {merged_path}")
+            
+            # Delete previous checkpoint unless it was "enduring" (every 10*save_every)
+            # Enduring checkpoints: batch 1000, 2000, 3000, ... when save_every=100
+            if prev_checkpoint_path is not None and prev_checkpoint_batch % (10 * save_every) != 0:
+                if os.path.exists(prev_checkpoint_path):
+                    os.remove(prev_checkpoint_path)
+                    print(f"  Deleted previous checkpoint: {prev_checkpoint_path}")
+                if prev_merged_path is not None and os.path.exists(prev_merged_path):
+                    os.remove(prev_merged_path)
+                    print(f"  Deleted previous merged: {prev_merged_path}")
+            
+            prev_checkpoint_path = checkpoint_path
+            prev_checkpoint_batch = b + 1
+            prev_merged_path = merged_path
             
             # Reset canvases before generating demo images to avoid issues
             model.reset()
