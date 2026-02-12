@@ -48,13 +48,14 @@ warnings.filterwarnings('ignore')
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
 # ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_blue_line_v4_from_control_batch73000.pth"
+#DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_blue_line_v4_from_control_batch73000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_control_arrow_qa_batch10000.pth"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_blue_line_v5_from_control_batch84000.pth"
 
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "qwen_agent_blue_line_v5_from_control"
+DEFAULT_SAVE_PREFIX = "qwen_agent_blue_line_v6"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -446,7 +447,7 @@ def main():
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA adapters")
     parser.add_argument("--num_batches", type=int, default=10000000000, help="Number of training batches")
     parser.add_argument("--batch_size", type=int, default=60, help="Batch size")
-    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=3e-5, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
     parser.add_argument("--checkpoint_prefix", type=str, default=DEFAULT_SAVE_PREFIX, help="Checkpoint filename prefix")
