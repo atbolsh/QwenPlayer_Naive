@@ -124,12 +124,12 @@ FRANKENSTEIN_CHECKPOINT_BF16 = os.path.join(os.path.dirname(os.path.dirname(os.p
 FRANKENSTEIN_CHECKPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "brain_checkpoints", "first_frankenstein.pt")
 model = create_model(device=device)
 
-# Model is created in bf16 by default (img_enc/img_dec now default to bf16)
+# Model is created in float32 for training (better gradient precision)
 # Load checkpoint if available
 checkpoint_to_load = None
 if os.path.exists(FRANKENSTEIN_CHECKPOINT_BF16):
     checkpoint_to_load = FRANKENSTEIN_CHECKPOINT_BF16
-    print(f"Loading bf16 frankenstein checkpoint from {FRANKENSTEIN_CHECKPOINT_BF16}...")
+    print(f"Loading frankenstein checkpoint from {FRANKENSTEIN_CHECKPOINT_BF16}...")
 elif os.path.exists(FRANKENSTEIN_CHECKPOINT):
     checkpoint_to_load = FRANKENSTEIN_CHECKPOINT
     print(f"Loading frankenstein checkpoint from {FRANKENSTEIN_CHECKPOINT}...")
@@ -138,6 +138,10 @@ if checkpoint_to_load:
     # Use strict=False to allow loading old checkpoints that don't have layer_scale_factors
     # New parameters (like layer_scale_factors) will use their default initialization
     checkpoint_state = torch.load(checkpoint_to_load, map_location=device, weights_only=True)
+    # Convert checkpoint to float32 if it was saved in bf16
+    for k, v in checkpoint_state.items():
+        if v.dtype == torch.bfloat16:
+            checkpoint_state[k] = v.float()
     load_result = model.pipe.model.load_state_dict(checkpoint_state, strict=False)
     print("Checkpoint loaded!")
     

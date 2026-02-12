@@ -126,7 +126,7 @@ def save_demo_images(model, step: int, task_name: str, prompt: str = "What do yo
     """
     model.pipe.model.eval()
     with torch.no_grad():
-        # Generate a game image (bf16)
+        # Generate a game image (float32)
         settings = G.random_bare_settings(gameSize=224, max_agent_offset=2.0)
         img = get_images([settings], device=device)
         
@@ -188,7 +188,7 @@ def train(
     model,
     frameworks: List[Tuple[Callable, int]],
     num_batches: int = 10000,
-    batch_size: int = 24, #8,
+    batch_size: int = 12,  # Halved for float32 (higher memory usage)
     lr: float = 1e-5,
     use_lora: bool = False,
     checkpoint_prefix: str = "qwen_agent",
@@ -446,7 +446,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train QwenAgentPlayer")
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA adapters")
     parser.add_argument("--num_batches", type=int, default=10000000000, help="Number of training batches")
-    parser.add_argument("--batch_size", type=int, default=60, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=30, help="Batch size (halved for float32)")
     parser.add_argument("--lr", type=float, default=3e-5, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
@@ -471,6 +471,10 @@ def main():
         if os.path.exists(checkpoint_path):
             print(f"Loading checkpoint: {checkpoint_path}")
             checkpoint_state = torch.load(checkpoint_path, map_location=device, weights_only=True)
+            # Convert bf16 to float32 for training
+            for k in list(checkpoint_state.keys()):
+                if checkpoint_state[k].dtype == torch.bfloat16:
+                    checkpoint_state[k] = checkpoint_state[k].float()
             checkpoint_is_lora = is_lora_checkpoint(checkpoint_state)
             print(f"  Checkpoint format: {'LoRA' if checkpoint_is_lora else 'non-LoRA'}")
         else:

@@ -209,7 +209,7 @@ def get_settings_batch(batch_size, bare=True, restrict_angles=True, max_agent_of
         return [G.random_settings(gameSize=224, restrict_angles=restrict_angles) for i in range(batch_size)]
 
 
-def get_images(settings_batch=None, device=device, ignore_agent=False, ignore_gold=False, ignore_walls=False, batch_size=None, bare=True, restrict_angles=True, dtype=torch.bfloat16):
+def get_images(settings_batch=None, device=device, ignore_agent=False, ignore_gold=False, ignore_walls=False, batch_size=None, bare=True, restrict_angles=True, dtype=torch.float32):
     """
     Get game images as tensors.
     
@@ -219,7 +219,7 @@ def get_images(settings_batch=None, device=device, ignore_agent=False, ignore_go
         ignore_agent, ignore_gold, ignore_walls: Drawing options
         batch_size: Number of images to generate (if settings_batch is None)
         bare, restrict_angles: Generation options (if settings_batch is None)
-        dtype: Output dtype (default: torch.bfloat16 for consistency with model)
+        dtype: Output dtype (default: torch.float32 for consistency with model)
         
     Returns:
         Tensor of shape (batch_size, 3, 224, 224) in specified dtype

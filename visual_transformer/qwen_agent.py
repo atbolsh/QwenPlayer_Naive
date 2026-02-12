@@ -82,9 +82,10 @@ class QwenExtension(nn.Module):
             f"embed_dim ({embed_dim}) must equal Qwen model's hidden_size ({qwen_hidden_size})"
         )
         
-        # Image encoder/decoder with parameters from negative_example.py
-        self.img_enc = ImageTransformerEncoder(embed_dim=embed_dim, num_heads=num_heads)
-        self.img_dec = ImageTransformerDecoder(embed_dim=embed_dim, num_heads=num_heads)
+        # Image encoder/decoder - use same dtype as qwen model (float32 after conversion)
+        encoder_decoder_dtype = next(qwen_model.parameters()).dtype
+        self.img_enc = ImageTransformerEncoder(embed_dim=embed_dim, num_heads=num_heads, dtype=encoder_decoder_dtype)
+        self.img_dec = ImageTransformerDecoder(embed_dim=embed_dim, num_heads=num_heads, dtype=encoder_decoder_dtype)
         
         # Per-layer scaling factors for image context
         # Initialized to layer_magnitude / img_enc_magnitude so image activations 
@@ -278,7 +279,7 @@ class QwenExtension(nn.Module):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,  # bf16 embeddings
+        inputs_embeds: Optional[torch.Tensor] = None,  # float32 embeddings
         past_key_values: Optional[DynamicCache] = None,
         position_ids: Optional[torch.LongTensor] = None,
         use_cache: bool = True,
@@ -337,7 +338,7 @@ class QwenAgentPipe(nn.Module):
         embed_dim: int = 1024,
         num_heads: int = 8,
         device: Optional[torch.device] = None,
-        torch_dtype: torch.dtype = torch.bfloat16,
+        torch_dtype: torch.dtype = torch.float32,
         image_patch_tokens: int = 256,  # Number of patches per image (16x16 grid)
     ):
         """
@@ -368,12 +369,13 @@ class QwenAgentPipe(nn.Module):
         self.begin_vision_id = self.tokenizer.convert_tokens_to_ids(self.BEGIN_VISION)
         self.end_vision_id = self.tokenizer.convert_tokens_to_ids(self.END_VISION)
         
-        # Load base Qwen model (no need to resize - model already has capacity for added tokens)
+        # Load base Qwen model (download in bf16, then convert to float32 for training)
         # Use default tie_word_embeddings=True to share weights between embed_tokens and lm_head
         qwen_model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=torch_dtype,
+            torch_dtype=torch.bfloat16,  # Download as bf16 (HuggingFace default)
         )
+        qwen_model = qwen_model.float()  # Convert to float32 for training
         
         # Wrap in QwenExtension (this will verify embed_dim == hidden_size)
         self.model = QwenExtension(qwen_model, embed_dim=embed_dim, num_heads=num_heads)
@@ -387,13 +389,13 @@ class QwenAgentPipe(nn.Module):
     
     def _preprocess_images(self, images: List[Union[torch.Tensor, np.ndarray, Image.Image]]) -> torch.Tensor:
         """
-        Preprocess a list of images to tensor format (bf16).
+        Preprocess a list of images to tensor format (float32).
         
         Args:
             images: List of images (can be tensors, numpy arrays, or PIL images)
             
         Returns:
-            Tensor of shape (num_images, channels, height, width) in bf16
+            Tensor of shape (num_images, channels, height, width) in float32
         """
         processed = []
         for img in images:
@@ -415,7 +417,7 @@ class QwenAgentPipe(nn.Module):
             elif isinstance(img, torch.Tensor):
                 if img.shape[-1] == 3:  # HWC -> CHW
                     img = img.permute(2, 0, 1)
-                # Convert to bf16 if not already
+                # Convert to model dtype if not already
                 if img.dtype != self.torch_dtype:
                     img = img.to(self.torch_dtype)
             processed.append(img)
@@ -551,7 +553,7 @@ class QwenAgentPipe(nn.Module):
     def batch_forward(
         self,
         input_ids: torch.LongTensor,
-        images: Optional[List[torch.Tensor]] = None,  # bf16 tensors: (batch_size, 3, 224, 224)
+        images: Optional[List[torch.Tensor]] = None,  # float32 tensors: (batch_size, 3, 224, 224)
         attention_mask: Optional[torch.LongTensor] = None,
         generate_image: bool = True,
     ):
@@ -643,7 +645,7 @@ class QwenAgentPipe(nn.Module):
             # Get text encoding from output (no slicing needed - output is text only)
             # CausalLMOutputWithPast has hidden_states tuple
             last_hidden_state = outputs.hidden_states[-1]
-            text_context = last_hidden_state  # Already text only, keep in bf16
+            text_context = last_hidden_state  # Already text only, keep in float32
             
             # Determine decoder input
             if image_encodings is not None:
@@ -651,7 +653,7 @@ class QwenAgentPipe(nn.Module):
                 # image_encodings: (num_images, batch_size, 256, embed_dim)
                 decoder_input = image_encodings[-1]  # (batch_size, 256, embed_dim)
             else:
-                # Random tensor in bf16
+                # Random tensor in float32
                 decoder_input = torch.randn(
                     batch_size, 256, self.embed_dim,
                     device=self.device,
@@ -917,7 +919,7 @@ class QwenAgentPipe(nn.Module):
             
             # Get hidden states (already text only - no slicing needed)
             last_hidden_state = outputs.hidden_states[-1]
-            text_context = last_hidden_state  # Keep in bf16
+            text_context = last_hidden_state  # Keep in float32
             
             # Decoder input: last image encoding or random
             if image_encodings is not None:
@@ -982,7 +984,7 @@ class QwenAgentPlayer:
         self.device = self.pipe.device
     
     def _to_tensor(self, image: Union[torch.Tensor, np.ndarray, Image.Image]) -> torch.Tensor:
-        """Convert an image to a torch tensor (3, 224, 224) in bf16."""
+        """Convert an image to a torch tensor (3, 224, 224) in float32."""
         if isinstance(image, torch.Tensor):
             img_tensor = image
         elif isinstance(image, np.ndarray):
@@ -1006,7 +1008,7 @@ class QwenAgentPlayer:
                 img_tensor.unsqueeze(0), size=(224, 224), mode='bilinear', align_corners=False
             ).squeeze(0)
         
-        # Ensure bf16
+        # Ensure model dtype (float32)
         if img_tensor.dtype != self.pipe.torch_dtype:
             img_tensor = img_tensor.to(self.pipe.torch_dtype)
         
@@ -1124,7 +1126,7 @@ class QwenAgentPlayer:
     def batch_forward(
         self,
         input_ids: torch.LongTensor,
-        image: torch.Tensor,  # bf16 tensor: (batch_size, 3, 224, 224)
+        image: torch.Tensor,  # float32 tensor: (batch_size, 3, 224, 224)
         attention_mask: Optional[torch.LongTensor] = None,
         generate_image: bool = True,
     ):
