@@ -18,14 +18,14 @@ task1_text_tensor = encode_batch(task1_prompts).contiguous().to(device)
 
 def task1_img_sample(num_sample=40):
     """Generate input/output image pairs for arrow-to-gold task."""
-    img_in = torch.zeros(num_sample, 224, 224, 3, dtype=torch.bfloat16)
-    img_out = torch.zeros(num_sample, 224, 224, 3, dtype=torch.bfloat16)
+    img_in = torch.zeros(num_sample, 224, 224, 3, dtype=torch.float32)
+    img_out = torch.zeros(num_sample, 224, 224, 3, dtype=torch.float32)
     for i in range(num_sample):
         bare_settings = G.random_bare_settings(gameSize=224, max_agent_offset=2.0)
         G2 = discreteGame(bare_settings)
-        img_in[i] = torch.tensor(G2.getData(), dtype=torch.bfloat16)
+        img_in[i] = torch.tensor(G2.getData(), dtype=torch.float32)
         G2.bare_draw_arrow_at_gold()
-        img_out[i] = torch.tensor(G2.getData(), dtype=torch.bfloat16)
+        img_out[i] = torch.tensor(G2.getData(), dtype=torch.float32)
     img_in = torch.permute(img_in, (0, 3, 1, 2)).contiguous().to(device)
     img_out = torch.permute(img_out, (0, 3, 1, 2)).contiguous().to(device)
     num_texts = task1_text_tensor.size()[0]

@@ -68,11 +68,11 @@ def get_please_turn_data(batch_size):
     )
     texts_pleaseTurnGoldAWAY = pleaseTurnGoldAWAY_generator_simple(S)
 
-    imgs = torch.zeros(batch_size, 224, 224, 3, dtype=torch.bfloat16)
+    imgs = torch.zeros(batch_size, 224, 224, 3, dtype=torch.float32)
     for i in range(batch_size):
         G2 = discreteGame(S[i])
         G2.draw_arrow(extension=1.0 + 3.0 * np.random.random(), direction=arrow_directions[i])
-        imgs[i] = torch.tensor(G2.getData(), dtype=torch.bfloat16)
+        imgs[i] = torch.tensor(G2.getData(), dtype=torch.float32)
     imgs = torch.permute(imgs, (0, 3, 1, 2)).contiguous().to(device)
     return imgs, texts_pleaseTurnBlueLine, texts_pleaseTurnGold, texts_pleaseTurnBlueLineAWAY, texts_pleaseTurnGoldAWAY
 

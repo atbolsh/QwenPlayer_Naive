@@ -60,9 +60,9 @@ def zoom_data(batch_size, task_ind=0):
     imgs_in = get_images(S)
     funcDict = {0: get_zoomAgent_numpy, 1: get_zoomGold_numpy, 2: get_zoomHalfway_numpy}
     func = funcDict[task_ind]
-    imgs_out = torch.zeros(batch_size, 224, 224, 3, dtype=torch.bfloat16)
+    imgs_out = torch.zeros(batch_size, 224, 224, 3, dtype=torch.float32)
     for i in range(batch_size):
-        imgs_out[i] = torch.tensor(func(S[i]), dtype=torch.bfloat16)
+        imgs_out[i] = torch.tensor(func(S[i]), dtype=torch.float32)
     imgs_out = torch.permute(imgs_out, (0, 3, 1, 2)).contiguous().to(device)
 
     tensorDict = {0: prompts_zoomAgent_tensor, 1: prompts_zoomGold_tensor, 2: prompts_zoomHalfway_tensor}

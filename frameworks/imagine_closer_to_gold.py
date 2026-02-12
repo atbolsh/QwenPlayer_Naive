@@ -29,10 +29,10 @@ def get_new_setting_imagineCloser2Gold(s):
 def imagineCloser2Gold_data(batch_size):
     S = get_settings_batch(batch_size)
     imgs_in = get_images(S)
-    imgs_out = torch.zeros(batch_size, 224, 224, 3, dtype=torch.bfloat16)
+    imgs_out = torch.zeros(batch_size, 224, 224, 3, dtype=torch.float32)
     for i in range(batch_size):
         G2 = discreteGame(get_new_setting_imagineCloser2Gold(S[i]))
-        imgs_out[i] = torch.tensor(G2.getData(), dtype=torch.bfloat16)
+        imgs_out[i] = torch.tensor(G2.getData(), dtype=torch.float32)
     imgs_out = torch.permute(imgs_out, (0, 3, 1, 2)).contiguous().to(device)
 
     texts = simple_sample(batch_size, prompts_imagineCloser2Gold_tensor)
