@@ -1,3 +1,3 @@
 from .model import *
-from .qwen_agent import QwenExtension, QwenAgentPipe, QwenAgentPlayer
+from .qwen_agent import VisionWeightedSum, QwenExtension, QwenAgentPipe, QwenAgentPlayer
 

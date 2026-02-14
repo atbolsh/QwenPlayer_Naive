@@ -12,6 +12,50 @@ from transformers.cache_utils import DynamicCache
 
 # Import image encoder/decoder from model.py (with 1024 embed_dim, 8 heads as per negative_example.py)
 from .model import ImageTransformerEncoder, ImageTransformerDecoder
+from .custom_transformer import PositionalEncoding
+
+import math
+
+
+class VisionWeightedSum(nn.Module):
+    """
+    Small transformer decoder that produces softmax weights over a variable number
+    of image sources (1-4).  Cross-attends to text context so the weighting can be
+    conditioned on the current text.
+
+    Adapted from enhanced_model.py but with a dynamic sequence length: the caller
+    passes `num_images` at runtime instead of always using a fixed value.
+    """
+
+    def __init__(self, max_sequence_length=4, embed_dim=1024, num_layers=2,
+                 num_heads=2, dropout=0.1, norm_first=False):
+        super().__init__()
+        self.max_sequence_length = max_sequence_length
+        self.embed_dim = embed_dim
+        self.pe = PositionalEncoding(embed_dim, max_sequence_length)
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=embed_dim, nhead=num_heads, dropout=dropout,
+            batch_first=True, norm_first=norm_first,
+        )
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
+        self.linear_layer = nn.Sequential(
+            nn.Dropout(p=0.1),
+            nn.Linear(embed_dim, 1),
+        )
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, context, num_images):
+        """
+        Args:
+            context: text hidden states (batch, text_seq_len, embed_dim)
+            num_images: int, number of image sources (1-4)
+        Returns:
+            Softmax weights of shape (batch, num_images, 1)
+        """
+        b = context.size(0)
+        inp = torch.zeros(b, num_images, self.embed_dim, device=context.device,
+                          dtype=context.dtype)
+        return self.softmax(self.linear_layer(self.decoder(self.pe(inp), context)))
 
 
 class QwenExtension(nn.Module):
@@ -86,6 +130,13 @@ class QwenExtension(nn.Module):
         encoder_decoder_dtype = next(qwen_model.parameters()).dtype
         self.img_enc = ImageTransformerEncoder(embed_dim=embed_dim, num_heads=num_heads, dtype=encoder_decoder_dtype)
         self.img_dec = ImageTransformerDecoder(embed_dim=embed_dim, num_heads=num_heads, dtype=encoder_decoder_dtype)
+        
+        # Vision weighted sum: learns to weight image encodings (input + canvases)
+        # before feeding them to img_dec (replaces naive "take last" strategy)
+        self.img_weight = VisionWeightedSum(
+            max_sequence_length=4, embed_dim=embed_dim,
+            num_layers=2, num_heads=2, dropout=0.1,
+        )
         
         # Per-layer scaling factors for image context
         # Initialized to layer_magnitude / img_enc_magnitude so image activations 
@@ -647,11 +698,16 @@ class QwenAgentPipe(nn.Module):
             last_hidden_state = outputs.hidden_states[-1]
             text_context = last_hidden_state  # Already text only, keep in float32
             
-            # Determine decoder input
+            # Determine decoder input via learned weighted sum of all image encodings
             if image_encodings is not None:
-                # Use the encoding of the last image for each batch item
                 # image_encodings: (num_images, batch_size, 256, embed_dim)
-                decoder_input = image_encodings[-1]  # (batch_size, 256, embed_dim)
+                num_images = image_encodings.shape[0]
+                # img_weights: (batch_size, num_images, 1)
+                img_weights = self.model.img_weight(text_context, num_images)
+                # Rearrange to (batch_size, num_images, 256, embed_dim) for weighting
+                all_img = image_encodings.permute(1, 0, 2, 3)
+                # Weighted sum: broadcast weights over (256, embed_dim) dims, sum over images
+                decoder_input = (all_img * img_weights.unsqueeze(-1)).sum(dim=1)
             else:
                 # Random tensor in float32
                 decoder_input = torch.randn(
@@ -921,10 +977,13 @@ class QwenAgentPipe(nn.Module):
             last_hidden_state = outputs.hidden_states[-1]
             text_context = last_hidden_state  # Keep in float32
             
-            # Decoder input: last image encoding or random
+            # Decoder input via learned weighted sum of all image encodings
             if image_encodings is not None:
-                # image_encodings: (num_images, 256, embed_dim) - use last, expand for batch
-                decoder_input = image_encodings[-1].unsqueeze(0).expand(batch_size, -1, -1)
+                # image_encodings: (num_images, batch_size, 256, embed_dim)
+                num_imgs = image_encodings.shape[0]
+                img_weights = self.model.img_weight(text_context, num_imgs)
+                all_img = image_encodings.permute(1, 0, 2, 3)
+                decoder_input = (all_img * img_weights.unsqueeze(-1)).sum(dim=1)
             else:
                 decoder_input = torch.randn(
                     batch_size, 256, self.embed_dim,
@@ -1169,4 +1228,4 @@ class QwenAgentPlayer:
 
 
 # Convenience exports
-__all__ = ['QwenExtension', 'QwenAgentPipe', 'QwenAgentPlayer']
+__all__ = ['VisionWeightedSum', 'QwenExtension', 'QwenAgentPipe', 'QwenAgentPlayer']
