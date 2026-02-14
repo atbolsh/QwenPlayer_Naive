@@ -59,6 +59,10 @@ print(f"\nTraining img_weight for up to {MAX_BATCHES} batches (target img_loss <
 print(f"  batch_size={BATCH_SIZE}, lr={LR}\n")
 
 for b in range(MAX_BATCHES):
+    # Reset every 3rd batch (same cadence as general_training.py)
+    # so canvases can accumulate between resets
+    reset_model = (b % 3 == 2)
+
     loss, text_loss, img_loss = control_batch(
         batch_size=BATCH_SIZE,
         model=model,
@@ -67,7 +71,7 @@ for b in range(MAX_BATCHES):
         compute_grad=True,
         training=True,
         model_eval=False,
-        reset_model=True,
+        reset_model=reset_model,
         printing=True,
     )
 
