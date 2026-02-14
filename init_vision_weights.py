@@ -71,8 +71,8 @@ for b in range(MAX_BATCHES):
         printing=True,
     )
 
-    if img_loss < IMG_LOSS_TARGET:
-        print(f"\n=== Target reached at batch {b + 1}: img_loss={img_loss:.6f} < {IMG_LOSS_TARGET} ===")
+    if img_loss < IMG_LOSS_TARGET and len(model.canvases) >= 2:
+        print(f"\n=== Target reached at batch {b + 1}: img_loss={img_loss:.6f} < {IMG_LOSS_TARGET}, canvases={len(model.canvases)} ===")
         break
 
 # ---- Unfreeze all and save full state dict ----
