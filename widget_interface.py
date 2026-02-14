@@ -224,9 +224,11 @@ class WidgetInterface:
             img_for_forward = local_tensor.squeeze(0) if local_tensor.dim() == 4 else local_tensor
             
             # Run model forward (QwenAgentPlayer.forward handles canvas storage)
+            # Use model's dtype (float32 for trained models)
+            img_dtype = getattr(self.model.pipe, 'torch_dtype', torch.float32)
             result = self.model.forward(
                 text=[text],
-                image=img_for_forward.to(torch.bfloat16),
+                image=img_for_forward.to(img_dtype),
                 generate_image=True,
                 return_dict=True,
             )
@@ -271,9 +273,11 @@ class WidgetInterface:
             img_for_forward = local_tensor.squeeze(0) if local_tensor.dim() == 4 else local_tensor
             
             # Run model forward (QwenAgentPlayer.forward handles canvas storage)
+            # Use model's dtype (float32 for trained models)
+            img_dtype = getattr(self.model.pipe, 'torch_dtype', torch.float32)
             result = self.model.forward(
                 text=[text],
-                image=img_for_forward.to(torch.bfloat16),
+                image=img_for_forward.to(img_dtype),
                 generate_image=True,
                 return_dict=True,
             )
@@ -340,7 +344,7 @@ class WidgetInterface:
             if hasattr(self.model, 'canvases') and len(self.model.canvases) > 0:
                 for i, canvas in enumerate(self.model.canvases):
                     print(f"\nCanvas {i}:")
-                    # Handle 3D (C,H,W) or 4D (B,C,H,W) tensors, convert bf16 to float
+                    # Handle 3D (C,H,W) or 4D (B,C,H,W) tensors, convert to float for display
                     img = canvas.float()
                     if img.dim() == 3:
                         img = img.unsqueeze(0)
