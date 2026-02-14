@@ -47,15 +47,16 @@ warnings.filterwarnings('ignore')
 # NOTE: The default loading happens in frameworks/general_framework.py
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
-# ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_blue_line_v4_from_control_batch73000.pth"
+#i ============================================================
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_vision_weights_initialized.pth"
+#DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_blue_line_v4_from_control_batch73000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_control_arrow_qa_batch10000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_blue_line_v5_from_control_batch84000.pth"
 
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "qwen_agent_blue_line_v6"
+DEFAULT_SAVE_PREFIX = "qwen_agent_mem_canvas_use"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -461,9 +462,9 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
     """
     return [
         (control_batch, 8),
-        (arrow_task_batch, 24),
+        (arrow_task_batch, 12),
         (qa_task_batch, 8),
-        # (mem_canvas_batch, 4),
+        (mem_canvas_batch, 24),
         # (blue_line_direction_batch, 4),
         # (gold_direction_batch, 4),
         # (gold_proximity_batch, 4),
