@@ -208,6 +208,20 @@ class WidgetInterface:
             return self.inp_tensor
         return self.get_image()
     
+    def _tokenize(self, text):
+        """Tokenize text and return input_ids and attention_mask on device."""
+        encoded = self.tokenizer(
+            [text] if isinstance(text, str) else text,
+            padding=True,
+            truncation=True,
+            max_length=self.max_len,
+            return_tensors='pt',
+        )
+        input_ids = encoded['input_ids'].to(self.device)
+        pad_id = self.tokenizer.pad_token_id if self.tokenizer.pad_token_id is not None else 0
+        attention_mask = (input_ids != pad_id).long()
+        return input_ids, attention_mask
+
     def _forward(self, b):
         with self.output:
             self.output.clear_output()
@@ -217,27 +231,26 @@ class WidgetInterface:
             else:
                 print("Using custom inp_tensor as input\n")
             
-            local_tensor = self._input_image
+            local_tensor = self._input_image  # (1, 3, 224, 224)
             text = self.text_input.value
             
-            # Squeeze batch dimension if present - forward expects (C, H, W) per image
-            img_for_forward = local_tensor.squeeze(0) if local_tensor.dim() == 4 else local_tensor
+            # Keep batch dimension - use batch_forward (same path as training)
+            if local_tensor.dim() == 3:
+                local_tensor = local_tensor.unsqueeze(0)
             
-            # Run model forward (QwenAgentPlayer.forward handles canvas storage)
-            # Use model's dtype (float32 for trained models)
-            img_dtype = getattr(self.model.pipe, 'torch_dtype', torch.float32)
-            result = self.model.forward(
-                text=[text],
-                image=img_for_forward.to(img_dtype),
+            input_ids, attention_mask = self._tokenize(text)
+            
+            result = self.model.batch_forward(
+                input_ids=input_ids,
+                image=local_tensor.to(self.device),
+                attention_mask=attention_mask,
                 generate_image=True,
-                return_dict=True,
             )
             
             # Display output
             print("Output image:\n")
-            if result.get('generated_image') is not None:
-                # Convert from bf16 to float for display
-                img = result['generated_image'].float()
+            if result.get('generated_images') is not None:
+                img = result['generated_images'].float()
                 plt.imshow(self.pre_imshow_numpy(img))
                 plt.show()
             else:
@@ -266,20 +279,20 @@ class WidgetInterface:
             plt.imshow(self.game.getData())
             plt.show()
             
-            local_tensor = self._input_image
+            local_tensor = self._input_image  # (1, 3, 224, 224)
             text = self.text_input.value
             
-            # Squeeze batch dimension if present - forward expects (C, H, W) per image
-            img_for_forward = local_tensor.squeeze(0) if local_tensor.dim() == 4 else local_tensor
+            # Keep batch dimension - use batch_forward (same path as training)
+            if local_tensor.dim() == 3:
+                local_tensor = local_tensor.unsqueeze(0)
             
-            # Run model forward (QwenAgentPlayer.forward handles canvas storage)
-            # Use model's dtype (float32 for trained models)
-            img_dtype = getattr(self.model.pipe, 'torch_dtype', torch.float32)
-            result = self.model.forward(
-                text=[text],
-                image=img_for_forward.to(img_dtype),
+            input_ids, attention_mask = self._tokenize(text)
+            
+            result = self.model.batch_forward(
+                input_ids=input_ids,
+                image=local_tensor.to(self.device),
+                attention_mask=attention_mask,
                 generate_image=True,
-                return_dict=True,
             )
             
             # Get next token prediction from outputs
@@ -305,9 +318,9 @@ class WidgetInterface:
             print(f"Updated text: {self.text_input.value}\n")
             
             print("Output image:\n")
-            if result.get('generated_image') is not None:
-                # Convert from bf16 to float for display
-                img = result['generated_image'].float()
+            if result.get('generated_images') is not None:
+                # Convert to float for display
+                img = result['generated_images'].float()
                 plt.imshow(self.pre_imshow_numpy(img))
                 plt.show()
             
