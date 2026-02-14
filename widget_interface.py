@@ -209,10 +209,14 @@ class WidgetInterface:
         return self.get_image()
     
     def _tokenize(self, text):
-        """Tokenize text and return input_ids and attention_mask on device."""
+        """Tokenize text and return input_ids and attention_mask on device.
+        
+        Uses padding='max_length' to match training (encode_batch in
+        general_framework_lightweight.py always pads to MAX_SEQ_LENGTH).
+        """
         encoded = self.tokenizer(
             [text] if isinstance(text, str) else text,
-            padding=True,
+            padding='max_length',
             truncation=True,
             max_length=self.max_len,
             return_tensors='pt',
