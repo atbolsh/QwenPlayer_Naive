@@ -20,7 +20,7 @@ SAVE_PATH = "brain_checkpoints/qwen_agent_vision_weights_initialized.pth"
 MAX_BATCHES = 1000
 IMG_LOSS_TARGET = 0.0006
 LR = 1e-4
-BATCH_SIZE = 12
+BATCH_SIZE = 90
 
 # ---- Load model ----
 print(f"Creating model...")
@@ -63,6 +63,7 @@ for b in range(MAX_BATCHES):
     # so canvases can accumulate between resets
     reset_model = (b % 3 == 2)
 
+    print(f"Batch {b+1}:")
     loss, text_loss, img_loss = control_batch(
         batch_size=BATCH_SIZE,
         model=model,
@@ -75,7 +76,7 @@ for b in range(MAX_BATCHES):
         printing=True,
     )
 
-    if img_loss < IMG_LOSS_TARGET and len(model.canvases) >= 2:
+    if img_loss < IMG_LOSS_TARGET and len(model.canvases) >= 2 and b > 50:
         print(f"\n=== Target reached at batch {b + 1}: img_loss={img_loss:.6f} < {IMG_LOSS_TARGET}, canvases={len(model.canvases)} ===")
         break
 
