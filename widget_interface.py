@@ -299,13 +299,22 @@ class WidgetInterface:
                 generate_image=True,
             )
             
+            # Debug: show input/output token tensors
+            n_real = attention_mask[0].sum().item()
+            print(f"Input tokens ({n_real} real + {input_ids.shape[1] - n_real} pad = {input_ids.shape[1]} total):")
+            print(f"  IDs: {input_ids[0, :n_real].tolist()}")
+            print(f"  Text: {self.tokenizer.decode(input_ids[0, :n_real])!r}\n")
+            
             # Get next token prediction from outputs
             outputs = result.get('outputs')
             if outputs is not None and hasattr(outputs, 'logits'):
                 logits = outputs.logits  # (batch, seq_len, vocab_size)
-                # Get last token logits
-                last_logits = logits[0, -1]  # (vocab_size,)
+                # Get logits at the LAST REAL token position (not last pad)
+                last_real_idx = n_real - 1
+                last_logits = logits[0, last_real_idx]  # (vocab_size,)
                 next_token = torch.argmax(last_logits).item()
+                
+                print(f"Output token: ID={next_token}, decoded={self.tokenizer.decode([next_token])!r}")
                 
                 # Check for special action tokens
                 if next_token in self.action_token_set:
