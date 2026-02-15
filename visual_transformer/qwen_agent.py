@@ -607,6 +607,7 @@ class QwenAgentPipe(nn.Module):
         images: Optional[List[torch.Tensor]] = None,  # float32 tensors: (batch_size, 3, 224, 224)
         attention_mask: Optional[torch.LongTensor] = None,
         generate_image: bool = True,
+        return_canvas_weights: bool = False,
     ):
         """
         Batch forward pass working directly with tensors.
@@ -624,6 +625,7 @@ class QwenAgentPipe(nn.Module):
                     None for no images.
             attention_mask: Optional attention mask for text (batch_size, text_seq_len)
             generate_image: Whether to generate output images (default: True)
+            return_canvas_weights: If True, include VisionWeightedSum canvas_weights in return dict
             
         Returns:
             Dictionary with:
@@ -633,6 +635,7 @@ class QwenAgentPipe(nn.Module):
                 - attention_mask: Full attention mask (including cached image tokens)
                 - image_seq_len: Length of image context (in cache, not in outputs)
                 - generated_images: Generated images (batch_size, ...) if generate_image=True
+                - canvas_weights: VisionWeightedSum weights (batch, num_images, 1) if return_canvas_weights
         """
         batch_size = input_ids.shape[0]
         input_ids = input_ids.to(self.device)
@@ -692,6 +695,7 @@ class QwenAgentPipe(nn.Module):
         
         # ===== Generate images =====
         generated_images = None
+        canvas_weights = None
         if generate_image:
             # Get text encoding from output (no slicing needed - output is text only)
             # CausalLMOutputWithPast has hidden_states tuple
@@ -702,12 +706,12 @@ class QwenAgentPipe(nn.Module):
             if image_encodings is not None:
                 # image_encodings: (num_images, batch_size, 256, embed_dim)
                 num_images = image_encodings.shape[0]
-                # img_weights: (batch_size, num_images, 1)
-                img_weights = self.model.img_weight(text_context, num_images)
+                # canvas_weights: (batch_size, num_images, 1) - VisionWeightedSum output
+                canvas_weights = self.model.img_weight(text_context, num_images)
                 # Rearrange to (batch_size, num_images, 256, embed_dim) for weighting
                 all_img = image_encodings.permute(1, 0, 2, 3)
                 # Weighted sum: broadcast weights over (256, embed_dim) dims, sum over images
-                decoder_input = (all_img * img_weights.unsqueeze(-1)).sum(dim=1)
+                decoder_input = (all_img * canvas_weights.unsqueeze(-1)).sum(dim=1)
             else:
                 # Random tensor in float32
                 decoder_input = torch.randn(
@@ -721,7 +725,7 @@ class QwenAgentPipe(nn.Module):
                 context=text_context
             )
         
-        return {
+        result = {
             'outputs': outputs,
             'image_encodings': image_encodings,
             'inputs_embeds': text_embeds,  # Now text only
@@ -729,6 +733,9 @@ class QwenAgentPipe(nn.Module):
             'image_seq_len': image_seq_len,  # Still tracked for reference
             'generated_images': generated_images,
         }
+        if return_canvas_weights:
+            result['canvas_weights'] = canvas_weights
+        return result
     
     def forward(
         self,
@@ -1188,6 +1195,7 @@ class QwenAgentPlayer:
         image: torch.Tensor,  # float32 tensor: (batch_size, 3, 224, 224)
         attention_mask: Optional[torch.LongTensor] = None,
         generate_image: bool = True,
+        return_canvas_weights: bool = False,
     ):
         """
         Batch forward pass with a new batch of input images.
@@ -1200,6 +1208,7 @@ class QwenAgentPlayer:
             image: Batch of images (batch_size, 3, 224, 224) - used as context, not stored
             attention_mask: Optional attention mask
             generate_image: Whether to generate output images
+            return_canvas_weights: If True, include VisionWeightedSum canvas_weights in return dict
             
         Returns:
             Model outputs (same as QwenAgentPipe.batch_forward)
@@ -1213,6 +1222,7 @@ class QwenAgentPlayer:
             images=self.canvases + [image],
             attention_mask=attention_mask,
             generate_image=generate_image,
+            return_canvas_weights=return_canvas_weights,
         )
         
         # Only the generated images get stored in canvases

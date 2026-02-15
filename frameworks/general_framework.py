@@ -230,7 +230,8 @@ def model_forward(model, text_batch, img_batch, ret_imgs=True, generate_image=Tr
     return text_probs
 
 
-def model_forward_with_tokens(model, text_batch, img_batch, ret_imgs=True):
+def model_forward_with_tokens(model, text_batch, img_batch, ret_imgs=True,
+                              return_canvas_weights=False):
     """
     Forward pass using tokenized input directly.
     
@@ -242,9 +243,12 @@ def model_forward_with_tokens(model, text_batch, img_batch, ret_imgs=True):
         text_batch: Token tensor (batch_size, seq_len) - must be a tensor
         img_batch: Image tensor (batch_size, 3, 224, 224)
         ret_imgs: Whether to return reconstructed images
+        return_canvas_weights: If True, also return VisionWeightedSum canvas_weights
         
     Returns:
+        If ret_imgs and return_canvas_weights: (text_probs, img_recon, canvas_weights)
         If ret_imgs: (text_probs, img_recon)
+        If return_canvas_weights: (text_probs, canvas_weights)
         Otherwise: text_probs
         
         text_probs is in format (batch, vocab, seq_len) for backward compatibility
@@ -271,6 +275,7 @@ def model_forward_with_tokens(model, text_batch, img_batch, ret_imgs=True):
         image=img_batch,
         attention_mask=attention_mask,
         generate_image=ret_imgs,
+        return_canvas_weights=return_canvas_weights,
     )
     
     # Extract logits and convert to old format (batch, vocab, seq_len)
@@ -279,9 +284,16 @@ def model_forward_with_tokens(model, text_batch, img_batch, ret_imgs=True):
     logits = result['outputs'].logits  # (batch, text_seq_len, vocab)
     text_probs = logits.permute(0, 2, 1)  # (batch, vocab, text_seq_len)
     
+    if ret_imgs and return_canvas_weights:
+        img_recon = result.get('generated_images')
+        canvas_weights = result.get('canvas_weights')
+        return text_probs, img_recon, canvas_weights
     if ret_imgs:
         img_recon = result.get('generated_images')
         return text_probs, img_recon
+    if return_canvas_weights:
+        canvas_weights = result.get('canvas_weights')
+        return text_probs, canvas_weights
     return text_probs
 
 
