@@ -486,7 +486,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train QwenAgentPlayer")
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA adapters")
     parser.add_argument("--num_batches", type=int, default=10000000000, help="Number of training batches")
-    parser.add_argument("--batch_size", type=int, default=30, help="Batch size (halved for float32)")
+    parser.add_argument("--batch_size", type=int, default=10, help="Batch size (halved for float32)")
     parser.add_argument("--lr", type=float, default=3e-5, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
