@@ -82,7 +82,7 @@ def save_demo_images(model, batch_num, prefix="mem_canvas"):
 def main():
     parser = argparse.ArgumentParser(description="Train VisionWeightedSum on canvas recall")
     parser.add_argument("--num_batches", type=int, default=10000000, help="Number of training batches")
-    parser.add_argument("--batch_size", type=int, default=30, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=120, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
