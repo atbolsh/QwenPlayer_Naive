@@ -363,9 +363,15 @@ def train(
                 torch.save(merged_state, merged_path)
                 print(f"Merged checkpoint saved: {merged_path}")
             
-            # Delete previous checkpoint unless it was "enduring" (every 10*save_every)
-            # Enduring checkpoints: batch 1000, 2000, 3000, ... when save_every=100
-            if prev_checkpoint_path is not None and prev_checkpoint_batch % (10 * save_every) != 0:
+            # Delete previous checkpoint unless:
+            #  - it was "enduring" (every 10*save_every), OR
+            #  - it was in the early phase (batch <= 10000) where we keep everything
+            should_delete_prev = (
+                prev_checkpoint_path is not None
+                and prev_checkpoint_batch > 10000
+                and prev_checkpoint_batch % (10 * save_every) != 0
+            )
+            if should_delete_prev:
                 if os.path.exists(prev_checkpoint_path):
                     os.remove(prev_checkpoint_path)
                     print(f"  Deleted previous checkpoint: {prev_checkpoint_path}")

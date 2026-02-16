@@ -19,9 +19,12 @@ import math
 
 class VisionWeightedSum(nn.Module):
     """
-    Small transformer decoder that produces softmax weights over a variable number
+    Small transformer decoder that produces logits over a variable number
     of image sources (1-4).  Cross-attends to text context so the weighting can be
     conditioned on the current text.
+
+    Returns raw logits (before softmax). The caller is responsible for applying
+    softmax when using as weights, or passing directly to cross_entropy for training.
 
     Adapted from enhanced_model.py but with a dynamic sequence length: the caller
     passes `num_images` at runtime instead of always using a fixed value.
@@ -42,7 +45,6 @@ class VisionWeightedSum(nn.Module):
             nn.Dropout(p=0.1),
             nn.Linear(embed_dim, 1),
         )
-        self.softmax = nn.Softmax(dim=1)
 
     def forward(self, context, num_images):
         """
@@ -50,12 +52,12 @@ class VisionWeightedSum(nn.Module):
             context: text hidden states (batch, text_seq_len, embed_dim)
             num_images: int, number of image sources (1-4)
         Returns:
-            Softmax weights of shape (batch, num_images, 1)
+            Raw logits of shape (batch, num_images, 1) — apply softmax externally
         """
         b = context.size(0)
         inp = torch.zeros(b, num_images, self.embed_dim, device=context.device,
                           dtype=context.dtype)
-        return self.softmax(self.linear_layer(self.decoder(self.pe(inp), context)))
+        return self.linear_layer(self.decoder(self.pe(inp), context))
 
 
 class QwenExtension(nn.Module):
@@ -607,7 +609,7 @@ class QwenAgentPipe(nn.Module):
         images: Optional[List[torch.Tensor]] = None,  # float32 tensors: (batch_size, 3, 224, 224)
         attention_mask: Optional[torch.LongTensor] = None,
         generate_image: bool = True,
-        return_canvas_weights: bool = False,
+        return_canvas_logits: bool = False,
     ):
         """
         Batch forward pass working directly with tensors.
@@ -625,7 +627,7 @@ class QwenAgentPipe(nn.Module):
                     None for no images.
             attention_mask: Optional attention mask for text (batch_size, text_seq_len)
             generate_image: Whether to generate output images (default: True)
-            return_canvas_weights: If True, include VisionWeightedSum canvas_weights in return dict
+            return_canvas_logits: If True, include VisionWeightedSum raw logits in return dict
             
         Returns:
             Dictionary with:
@@ -635,7 +637,7 @@ class QwenAgentPipe(nn.Module):
                 - attention_mask: Full attention mask (including cached image tokens)
                 - image_seq_len: Length of image context (in cache, not in outputs)
                 - generated_images: Generated images (batch_size, ...) if generate_image=True
-                - canvas_weights: VisionWeightedSum weights (batch, num_images, 1) if return_canvas_weights
+                - canvas_logits: VisionWeightedSum raw logits (batch, num_images, 1) if return_canvas_logits
         """
         batch_size = input_ids.shape[0]
         input_ids = input_ids.to(self.device)
@@ -695,7 +697,7 @@ class QwenAgentPipe(nn.Module):
         
         # ===== Generate images =====
         generated_images = None
-        canvas_weights = None
+        canvas_logits = None
         if generate_image:
             # Get text encoding from output (no slicing needed - output is text only)
             # CausalLMOutputWithPast has hidden_states tuple
@@ -706,12 +708,14 @@ class QwenAgentPipe(nn.Module):
             if image_encodings is not None:
                 # image_encodings: (num_images, batch_size, 256, embed_dim)
                 num_images = image_encodings.shape[0]
-                # canvas_weights: (batch_size, num_images, 1) - VisionWeightedSum output
-                canvas_weights = self.model.img_weight(text_context, num_images)
+                # canvas_logits: (batch_size, num_images, 1) - raw logits from VisionWeightedSum
+                canvas_logits = self.model.img_weight(text_context, num_images)
+                # Apply softmax to get proper weights for the weighted sum
+                canvas_probs = torch.softmax(canvas_logits, dim=1)
                 # Rearrange to (batch_size, num_images, 256, embed_dim) for weighting
                 all_img = image_encodings.permute(1, 0, 2, 3)
                 # Weighted sum: broadcast weights over (256, embed_dim) dims, sum over images
-                decoder_input = (all_img * canvas_weights.unsqueeze(-1)).sum(dim=1)
+                decoder_input = (all_img * canvas_probs.unsqueeze(-1)).sum(dim=1)
             else:
                 # Random tensor in float32
                 decoder_input = torch.randn(
@@ -733,8 +737,8 @@ class QwenAgentPipe(nn.Module):
             'image_seq_len': image_seq_len,  # Still tracked for reference
             'generated_images': generated_images,
         }
-        if return_canvas_weights:
-            result['canvas_weights'] = canvas_weights
+        if return_canvas_logits:
+            result['canvas_logits'] = canvas_logits
         return result
     
     def forward(
@@ -988,9 +992,10 @@ class QwenAgentPipe(nn.Module):
             if image_encodings is not None:
                 # image_encodings: (num_images, batch_size, 256, embed_dim)
                 num_imgs = image_encodings.shape[0]
-                img_weights = self.model.img_weight(text_context, num_imgs)
+                canvas_logits_gen = self.model.img_weight(text_context, num_imgs)
+                canvas_probs_gen = torch.softmax(canvas_logits_gen, dim=1)
                 all_img = image_encodings.permute(1, 0, 2, 3)
-                decoder_input = (all_img * img_weights.unsqueeze(-1)).sum(dim=1)
+                decoder_input = (all_img * canvas_probs_gen.unsqueeze(-1)).sum(dim=1)
             else:
                 decoder_input = torch.randn(
                     batch_size, 256, self.embed_dim,
@@ -1195,7 +1200,7 @@ class QwenAgentPlayer:
         image: torch.Tensor,  # float32 tensor: (batch_size, 3, 224, 224)
         attention_mask: Optional[torch.LongTensor] = None,
         generate_image: bool = True,
-        return_canvas_weights: bool = False,
+        return_canvas_logits: bool = False,
     ):
         """
         Batch forward pass with a new batch of input images.
@@ -1208,7 +1213,7 @@ class QwenAgentPlayer:
             image: Batch of images (batch_size, 3, 224, 224) - used as context, not stored
             attention_mask: Optional attention mask
             generate_image: Whether to generate output images
-            return_canvas_weights: If True, include VisionWeightedSum canvas_weights in return dict
+            return_canvas_logits: If True, include VisionWeightedSum raw logits in return dict
             
         Returns:
             Model outputs (same as QwenAgentPipe.batch_forward)
@@ -1222,7 +1227,7 @@ class QwenAgentPlayer:
             images=self.canvases + [image],
             attention_mask=attention_mask,
             generate_image=generate_image,
-            return_canvas_weights=return_canvas_weights,
+            return_canvas_logits=return_canvas_logits,
         )
         
         # Only the generated images get stored in canvases

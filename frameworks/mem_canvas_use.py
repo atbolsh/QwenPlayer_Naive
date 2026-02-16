@@ -111,9 +111,9 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
 
     # Run ONE forward pass with recall prompt and fresh input image
     if train_weights:
-        text_probs, recon, canvas_weights = model_forward_with_tokens(
+        text_probs, recon, canvas_logits = model_forward_with_tokens(
             model, padded_prompt_tensor, input_imgs, ret_imgs=True,
-            return_canvas_weights=True,
+            return_canvas_logits=True,
         )
     else:
         text_probs, recon = model_forward_with_tokens(
@@ -126,11 +126,11 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
 
     loss = task_img_loss + (task_text_loss / 1000)
 
-    # Optional CrossEntropy loss on canvas_weights for VisionWeightedSum training
+    # Optional CrossEntropy loss on canvas_logits for VisionWeightedSum training
     weight_ce_loss_val = 0.0
-    if train_weights and canvas_weights is not None:
-        # canvas_weights: (batch, num_images, 1) -> squeeze to (batch, num_images)
-        weight_ce_loss = F.cross_entropy(canvas_weights.squeeze(-1), target_weight_indices)
+    if train_weights and canvas_logits is not None:
+        # canvas_logits: (batch, num_images, 1) -> squeeze to (batch, num_images)
+        weight_ce_loss = F.cross_entropy(canvas_logits.squeeze(-1), target_weight_indices)
         loss = loss + weight_ce_loss
         weight_ce_loss_val = weight_ce_loss.item()
 

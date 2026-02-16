@@ -134,11 +134,7 @@ def main():
     print(f"\nStarting training for up to {args.num_batches} batches...")
     print(f"  batch_size={args.batch_size}, lr={args.lr}")
     print(f"  save_every={args.save_every}, print_every={args.print_every}")
-    print(f"  Enduring checkpoints every {10 * args.save_every} batches")
     print("=" * 60)
-
-    prev_checkpoint_path = None
-    prev_checkpoint_batch = None
 
     total_loss_accum = 0.0
     loss_count = 0
@@ -184,7 +180,7 @@ def main():
             total_loss_accum = 0.0
             loss_count = 0
 
-        # ---- Save checkpoint ----
+        # ---- Save checkpoint (keep all, no deletion) ----
         if (b + 1) % args.save_every == 0:
             # Unfreeze all before saving so the full state dict is complete
             for param in model.pipe.model.parameters():
@@ -196,19 +192,7 @@ def main():
                 f"{args.checkpoint_prefix}_batch{b + 1}.pth"
             )
             torch.save(state_dict, checkpoint_path)
-            is_enduring = (b + 1) % (10 * args.save_every) == 0
-            print(f"Checkpoint saved: {checkpoint_path}" +
-                  (" (enduring)" if is_enduring else ""))
-
-            # Delete previous non-enduring checkpoint
-            if (prev_checkpoint_path is not None and
-                    prev_checkpoint_batch % (10 * args.save_every) != 0):
-                if os.path.exists(prev_checkpoint_path):
-                    os.remove(prev_checkpoint_path)
-                    print(f"  Deleted previous: {prev_checkpoint_path}")
-
-            prev_checkpoint_path = checkpoint_path
-            prev_checkpoint_batch = b + 1
+            print(f"Checkpoint saved: {checkpoint_path}")
 
             # Save demo images
             model.reset()
