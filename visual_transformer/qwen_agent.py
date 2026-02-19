@@ -31,7 +31,7 @@ class VisionWeightedSum(nn.Module):
     """
 
     def __init__(self, max_sequence_length=4, embed_dim=1024, num_layers=2,
-                 num_heads=2, dropout=0.1, norm_first=False):
+                 num_heads=2, dropout=0.3, norm_first=False):
         super().__init__()
         self.max_sequence_length = max_sequence_length
         self.embed_dim = embed_dim
@@ -41,8 +41,9 @@ class VisionWeightedSum(nn.Module):
             batch_first=True, norm_first=norm_first,
         )
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
+        self.post_decoder_dropout = nn.Dropout(p=0.3)
         self.linear_layer = nn.Sequential(
-            nn.Dropout(p=0.1),
+            nn.Dropout(p=0.3),
             nn.Linear(embed_dim, 1),
         )
 
@@ -57,7 +58,9 @@ class VisionWeightedSum(nn.Module):
         b = context.size(0)
         inp = torch.zeros(b, num_images, self.embed_dim, device=context.device,
                           dtype=context.dtype)
-        return self.linear_layer(self.decoder(self.pe(inp), context))
+        dec_out = self.decoder(self.pe(inp), context)
+        dec_out = self.post_decoder_dropout(dec_out)
+        return self.linear_layer(dec_out)
 
 
 class QwenExtension(nn.Module):

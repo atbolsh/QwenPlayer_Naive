@@ -8,6 +8,12 @@ from .general_framework import *
 # Max lookback: 3 canvases + 1 current = 4 possible images
 MAX_LOOKBACK = 4
 
+# Regularization constants for VisionWeightedSum CE training
+WEIGHT_CE_LABEL_SMOOTHING = 0.01
+WEIGHT_CE_LOGIT_CLAMP = 10.0
+WEIGHT_CE_FLOOD_LEVEL = 0.01
+WEIGHT_CLAMP_RANGE = 2.0
+
 current_image_prompts = [
     "Hey, recall the current image again?",
     "Focus on the present view, please.",
@@ -54,7 +60,8 @@ def mem_task_img_sample(num_sample=40):
 
 def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_order=True,
                       model_eval=True, reset_model=True, printing=True, training=False,
-                      use_lora=False, train_weights=False):
+                      use_lora=False, train_weights=True, only_weight_ce=False,
+                      grad_clip_norm=1.0):
     if training and model_eval:
         raise ValueError("Cannot be training and model_eval cannot both be True")
 
@@ -66,6 +73,9 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
 
     if training and (optimizer is None):
         raise ValueError("Must provide an optimizer if training")
+
+    if only_weight_ce and not train_weights:
+        raise ValueError("only_weight_ce requires train_weights=True")
 
     # How many images are available: existing canvases + the current input we'll provide
     num_canvases = len(model.canvases)
@@ -79,38 +89,42 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
     lookback_vals = np.random.randint(0, num_available, (batch_size,))
 
     # Build target images and prompts per batch element
-    target = torch.zeros_like(input_imgs)
-    # target_weight_indices: which index in image_encodings should have weight 1
-    # image_encodings order: [canvas_oldest, ..., canvas_newest, current_input]
     target_weight_indices = torch.zeros(batch_size, dtype=torch.long, device=device)
     prompts = []
 
+    if not only_weight_ce:
+        target = torch.zeros_like(input_imgs)
+
     for i in range(batch_size):
         k = lookback_vals[i]
-        if k == 0:
-            # Recall the current input
-            target[i] = input_imgs[i].detach()
-        else:
-            # Recall the k-th most recent canvas (canvases[-k])
-            target[i] = model.canvases[-k][i].detach()
+        if not only_weight_ce:
+            if k == 0:
+                target[i] = input_imgs[i].detach()
+            else:
+                target[i] = model.canvases[-k][i].detach()
 
         prompts.append(random.choice(lookback_prompts[k]))
-
-        # Map lookback k to image_encodings index:
-        # image_encodings = [canvas_0_oldest, ..., canvas_N_newest, input]
-        # k=0 (current) -> last index = num_available - 1
-        # k=1 (newest canvas) -> second-to-last = num_available - 2
-        # k=j -> num_available - 1 - j
         target_weight_indices[i] = num_available - 1 - k
 
-    target = target.contiguous()
+    if not only_weight_ce:
+        target = target.contiguous()
+
     prompt_tensor = encode_batch(prompts).contiguous().to(device)
-    # Pad to MAX_SEQ_LENGTH (32) to match training format
     padded_prompt_tensor = torch.zeros((batch_size, MAX_SEQ_LENGTH), dtype=prompt_tensor.dtype, device=device)
     padded_prompt_tensor[:, :prompt_tensor.size(1)] += prompt_tensor
 
-    # Run ONE forward pass with recall prompt and fresh input image
-    if train_weights:
+    # Forward pass
+    task_img_loss_val = 0.0
+    task_text_loss_val = 0.0
+    weight_ce_loss_val = 0.0
+
+    if only_weight_ce:
+        # Only need canvas_logits, skip img_dec entirely
+        text_probs, canvas_logits = model_forward_with_tokens(
+            model, padded_prompt_tensor, input_imgs, ret_imgs=False,
+            return_canvas_logits=True,
+        )
+    elif train_weights:
         text_probs, recon, canvas_logits = model_forward_with_tokens(
             model, padded_prompt_tensor, input_imgs, ret_imgs=True,
             return_canvas_logits=True,
@@ -120,30 +134,50 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
             model, padded_prompt_tensor, input_imgs, ret_imgs=True,
         )
 
-    # Losses
-    task_img_loss = img_criterion(recon, target)
-    task_text_loss = get_text_loss(text_probs, padded_prompt_tensor)
+    # Compute losses
+    if only_weight_ce:
+        loss = torch.tensor(0.0, device=device)
+    else:
+        task_img_loss = img_criterion(recon, target)
+        task_text_loss = get_text_loss(text_probs, padded_prompt_tensor)
+        loss = task_img_loss + (task_text_loss / 1000)
+        task_img_loss_val = task_img_loss.item()
+        task_text_loss_val = task_text_loss.item()
 
-    loss = task_img_loss + (task_text_loss / 1000)
-
-    # Optional CrossEntropy loss on canvas_logits for VisionWeightedSum training
-    weight_ce_loss_val = 0.0
     if train_weights and canvas_logits is not None:
-        # canvas_logits: (batch, num_images, 1) -> squeeze to (batch, num_images)
-        weight_ce_loss = F.cross_entropy(canvas_logits.squeeze(-1), target_weight_indices)
-        loss = loss + weight_ce_loss
+        # Logit clamping: prevent extreme values
+        clamped_logits = canvas_logits.squeeze(-1).clamp(-WEIGHT_CE_LOGIT_CLAMP, WEIGHT_CE_LOGIT_CLAMP)
+        # Label smoothing: prevents driving logits to infinity
+        weight_ce_loss = F.cross_entropy(clamped_logits, target_weight_indices,
+                                         label_smoothing=WEIGHT_CE_LABEL_SMOOTHING)
+        # Loss flooding: prevent over-optimization below flood level
+        weight_ce_loss = torch.abs(weight_ce_loss - WEIGHT_CE_FLOOD_LEVEL) + WEIGHT_CE_FLOOD_LEVEL
         weight_ce_loss_val = weight_ce_loss.item()
+
+        if only_weight_ce:
+            loss = weight_ce_loss
+        else:
+            loss = loss + (weight_ce_loss / 1000)
 
     if training:
         loss.backward()
+        if grad_clip_norm is not None:
+            torch.nn.utils.clip_grad_norm_(
+                [p for p in model.pipe.model.parameters() if p.requires_grad],
+                max_norm=grad_clip_norm,
+            )
         optimizer.step()
         optimizer.zero_grad()
+        # Weight clamping on img_weight parameters
+        with torch.no_grad():
+            for p in model.pipe.model.img_weight.parameters():
+                p.clamp_(-WEIGHT_CLAMP_RANGE, WEIGHT_CLAMP_RANGE)
         model.soft_reset()
 
     if printing:
         msg = (f"Total loss: {loss.item():.4f}; "
-               f"img_recall={task_img_loss.item():.4f}, "
-               f"text={task_text_loss.item():.4f}, "
+               f"img_recall={task_img_loss_val:.4f}, "
+               f"text={task_text_loss_val:.4f}, "
                f"num_canvases={num_canvases}")
         if train_weights:
             msg += f", weight_ce={weight_ce_loss_val:.4f}"
@@ -152,20 +186,23 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
     if reset_model:
         model.reset()
 
-    return loss.item(), task_img_loss.item(), task_text_loss.item(), weight_ce_loss_val
+    return loss.item(), task_img_loss_val, task_text_loss_val, weight_ce_loss_val
 
 
 def mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, compute_grad=False,
                      random_order=True, model_eval=True, reset_model=True, printing=True,
-                     training=False, use_lora=False, train_weights=False):
+                     training=False, use_lora=False, train_weights=True,
+                     only_weight_ce=False, grad_clip_norm=1.0):
     if compute_grad:
         return _mem_canvas_batch(batch_size, model, optimizer, batch_num, random_order,
                                  model_eval, reset_model, printing, training, use_lora,
-                                 train_weights=train_weights)
+                                 train_weights=train_weights, only_weight_ce=only_weight_ce,
+                                 grad_clip_norm=grad_clip_norm)
     else:
         if training:
             raise ValueError("If training is True, compute_grad must also be True")
         with torch.no_grad():
             return _mem_canvas_batch(batch_size, model, optimizer, batch_num, random_order,
                                      model_eval, reset_model, printing, training, use_lora,
-                                     train_weights=train_weights)
+                                     train_weights=train_weights, only_weight_ce=only_weight_ce,
+                                     grad_clip_norm=grad_clip_norm)

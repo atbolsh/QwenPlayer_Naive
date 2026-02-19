@@ -35,7 +35,7 @@ warnings.filterwarnings('ignore')
 # ============================================================
 CHECKPOINT_DIR = "brain_checkpoints"
 DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_vision_weights_initialized.pth"
-DEFAULT_SAVE_PREFIX = "qwen_agent_mem_canvas_weights"
+DEFAULT_SAVE_PREFIX = "qwen_agent_mem_canvas_weights_v2"
 LEDGER_PATH = os.path.join(os.path.dirname(__file__), f"{DEFAULT_SAVE_PREFIX}_losses.csv")
 
 
@@ -121,7 +121,7 @@ def main():
     print(f"Trainable parameters: {n_trainable:,} / {n_total:,} total")
 
     # ---- Optimizer (only img_weight params) ----
-    optimizer = optim.Adam(model.pipe.model.img_weight.parameters(), lr=args.lr, eps=1e-9)
+    optimizer = optim.AdamW(model.pipe.model.img_weight.parameters(), lr=args.lr, eps=1e-9, weight_decay=1e-2)
 
     # ---- CSV ledger ----
     ledger_path = os.path.join(os.path.dirname(__file__),
@@ -157,6 +157,8 @@ def main():
                 reset_model=reset_model,
                 printing=should_print,
                 train_weights=True,
+                only_weight_ce=True,
+                grad_clip_norm=1.0,
             )
             total_loss, img_loss, text_loss, weight_ce_loss = results
             total_loss_accum += total_loss
