@@ -301,6 +301,11 @@ def train(
             total_losses[task_ind] += L
             loss_counts[task_ind] += 1
             last_losses[task_ind] = L
+
+            # Clamp img_weight params after every task to prevent drift from non-CE losses
+            with torch.no_grad():
+                for p in model.pipe.model.img_weight.parameters():
+                    p.clamp_(-2.0, 2.0)
         except Exception as e:
             print(f"Error in task {task_names[task_ind]}: {e}")
             model.reset()
