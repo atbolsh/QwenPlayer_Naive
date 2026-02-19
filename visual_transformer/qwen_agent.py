@@ -695,32 +695,29 @@ class QwenAgentPipe(nn.Module):
             position_ids=position_ids,
             cache_position=cache_position,
             use_cache=True,
-            output_hidden_states=generate_image,  # Only need hidden states if generating images
+            output_hidden_states=(generate_image or return_canvas_logits),
         )
         
         # ===== Generate images =====
         generated_images = None
         canvas_logits = None
-        if generate_image:
-            # Get text encoding from output (no slicing needed - output is text only)
-            # CausalLMOutputWithPast has hidden_states tuple
+        need_text_context = generate_image or return_canvas_logits
+        text_context = None
+        if need_text_context:
             last_hidden_state = outputs.hidden_states[-1]
-            text_context = last_hidden_state  # Already text only, keep in float32
-            
-            # Determine decoder input via learned weighted sum of all image encodings
+            text_context = last_hidden_state
+
+        # Compute canvas_logits whenever we have image_encodings and need them
+        if need_text_context and image_encodings is not None:
+            num_images = image_encodings.shape[0]
+            canvas_logits = self.model.img_weight(text_context, num_images)
+
+        if generate_image:
             if image_encodings is not None:
-                # image_encodings: (num_images, batch_size, 256, embed_dim)
-                num_images = image_encodings.shape[0]
-                # canvas_logits: (batch_size, num_images, 1) - raw logits from VisionWeightedSum
-                canvas_logits = self.model.img_weight(text_context, num_images)
-                # Apply softmax to get proper weights for the weighted sum
                 canvas_probs = torch.softmax(canvas_logits, dim=1)
-                # Rearrange to (batch_size, num_images, 256, embed_dim) for weighting
                 all_img = image_encodings.permute(1, 0, 2, 3)
-                # Weighted sum: broadcast weights over (256, embed_dim) dims, sum over images
                 decoder_input = (all_img * canvas_probs.unsqueeze(-1)).sum(dim=1)
             else:
-                # Random tensor in float32
                 decoder_input = torch.randn(
                     batch_size, 256, self.embed_dim,
                     device=self.device,
