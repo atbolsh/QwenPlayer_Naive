@@ -119,9 +119,9 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
     weight_ce_loss_val = 0.0
 
     if only_weight_ce:
-        # Only need canvas_logits, skip img_dec entirely
-        text_probs, canvas_logits = model_forward_with_tokens(
-            model, padded_prompt_tensor, input_imgs, ret_imgs=False,
+        # Still generate images so they get stored as canvases for future batches
+        text_probs, recon, canvas_logits = model_forward_with_tokens(
+            model, padded_prompt_tensor, input_imgs, ret_imgs=True,
             return_canvas_logits=True,
         )
     elif train_weights:
