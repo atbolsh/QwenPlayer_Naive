@@ -157,7 +157,7 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
         if only_weight_ce:
             loss = weight_ce_loss
         else:
-            loss = loss + (weight_ce_loss / 1000)
+            loss = loss + (weight_ce_loss / 5)
 
     if training:
         loss.backward()
