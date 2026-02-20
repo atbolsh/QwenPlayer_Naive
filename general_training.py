@@ -47,8 +47,9 @@ warnings.filterwarnings('ignore')
 # NOTE: The default loading happens in frameworks/general_framework.py
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
-#i ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_batch5000.pth"
+# ============================================================
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_v2_batch6000.pth"
+#DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_batch5000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_vision_weights_initialized.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_blue_line_v4_from_control_batch73000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_control_arrow_qa_batch10000.pth"
