@@ -34,8 +34,8 @@ warnings.filterwarnings('ignore')
 # Defaults
 # ============================================================
 CHECKPOINT_DIR = "brain_checkpoints"
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_vision_weights_initialized.pth"
-DEFAULT_SAVE_PREFIX = "qwen_agent_mem_canvas_weights_v2"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_v2_batch6000.pth"
+DEFAULT_SAVE_PREFIX = "qwen_agent_mem_canvas_weights_v3"
 LEDGER_PATH = os.path.join(os.path.dirname(__file__), f"{DEFAULT_SAVE_PREFIX}_losses.csv")
 
 

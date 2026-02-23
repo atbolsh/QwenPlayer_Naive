@@ -8,6 +8,10 @@ from .general_framework import *
 # Max lookback: 3 canvases + 1 current = 4 possible images
 MAX_LOOKBACK = 4
 
+# Fraction of each batch that uses normal (sdt) prompts instead of recall prompts.
+# These samples teach the model to default to the current image for normal text.
+DEFAULT_PROMPT_FRACTION = 1 / 3
+
 # Regularization constants for VisionWeightedSum CE training
 WEIGHT_CE_LABEL_SMOOTHING = 0.01
 WEIGHT_CE_LOGIT_CLAMP = 10.0
@@ -84,47 +88,57 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
     # Generate a fresh input image batch
     input_imgs = mem_task_img_sample(batch_size)
 
-    # For each batch element, pick a random lookback k in [0, num_available)
-    # k=0 means "recall current input", k=1 means "recall newest canvas", etc.
-    lookback_vals = np.random.randint(0, num_available, (batch_size,))
+    # Split batch: some elements use normal (sdt) prompts, the rest use recall prompts.
+    # Normal-prompt elements always target the current image (teaches default behavior).
+    num_default = int(batch_size * DEFAULT_PROMPT_FRACTION)
+    num_recall = batch_size - num_default
 
-    # Build target images and prompts per batch element
+    # For recall elements, pick a random lookback k in [0, num_available)
+    lookback_vals = np.random.randint(0, num_available, (num_recall,))
+
     target_weight_indices = torch.zeros(batch_size, dtype=torch.long, device=device)
-    prompts = []
+    target = torch.zeros_like(input_imgs)
 
-    if not only_weight_ce:
-        target = torch.zeros_like(input_imgs)
+    # --- Default-prompt elements (indices 0..num_default-1): use sdt texts ---
+    sdt_ind = (batch_num * num_default) % num_controls
+    if sdt_ind + num_default > num_controls:
+        sdt_ind = num_controls - num_default
+    if num_default > 0:
+        default_texts = get_text_batch(sdt, sdt_ind, num_default)
+    for i in range(num_default):
+        target[i] = input_imgs[i].detach()
+        target_weight_indices[i] = num_available - 1  # current image = last index
 
-    for i in range(batch_size):
-        k = lookback_vals[i]
-        if not only_weight_ce:
-            if k == 0:
-                target[i] = input_imgs[i].detach()
-            else:
-                target[i] = model.canvases[-k][i].detach()
-
-        prompts.append(random.choice(lookback_prompts[k]))
+    # --- Recall-prompt elements (indices num_default..batch_size-1) ---
+    recall_prompts = []
+    for j in range(num_recall):
+        i = num_default + j
+        k = lookback_vals[j]
+        if k == 0:
+            target[i] = input_imgs[i].detach()
+        else:
+            target[i] = model.canvases[-k][i].detach()
+        recall_prompts.append(random.choice(lookback_prompts[k]))
         target_weight_indices[i] = num_available - 1 - k
 
-    if not only_weight_ce:
-        target = target.contiguous()
+    target = target.contiguous()
 
-    prompt_tensor = encode_batch(prompts).contiguous().to(device)
-    padded_prompt_tensor = torch.zeros((batch_size, MAX_SEQ_LENGTH), dtype=prompt_tensor.dtype, device=device)
-    padded_prompt_tensor[:, :prompt_tensor.size(1)] += prompt_tensor
+    # Build the full prompt tensor: sdt texts for default, encoded recall prompts for the rest
+    padded_prompt_tensor = torch.zeros((batch_size, MAX_SEQ_LENGTH), dtype=torch.long, device=device)
+    if num_default > 0:
+        dt_len = default_texts.size(1)
+        padded_prompt_tensor[:num_default, :dt_len] += default_texts
+    if num_recall > 0:
+        recall_tensor = encode_batch(recall_prompts).contiguous().to(device)
+        rt_len = recall_tensor.size(1)
+        padded_prompt_tensor[num_default:, :rt_len] += recall_tensor
 
     # Forward pass
     task_img_loss_val = 0.0
     task_text_loss_val = 0.0
     weight_ce_loss_val = 0.0
 
-    if only_weight_ce:
-        # Still generate images so they get stored as canvases for future batches
-        text_probs, recon, canvas_logits = model_forward_with_tokens(
-            model, padded_prompt_tensor, input_imgs, ret_imgs=True,
-            return_canvas_logits=True,
-        )
-    elif train_weights:
+    if train_weights:
         text_probs, recon, canvas_logits = model_forward_with_tokens(
             model, padded_prompt_tensor, input_imgs, ret_imgs=True,
             return_canvas_logits=True,
@@ -136,7 +150,7 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
 
     # Compute losses
     if only_weight_ce:
-        loss = torch.tensor(0.0, device=device)
+        loss = torch.tensor(0.0, device=device, requires_grad=False)
     else:
         task_img_loss = img_criterion(recon, target)
         task_text_loss = get_text_loss(text_probs, padded_prompt_tensor)
