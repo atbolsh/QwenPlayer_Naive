@@ -102,16 +102,20 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
     if training and (optimizer is None):
         raise ValueError("Must provide an optimizer if training")
     
-    # Split batch across 4 generators: control + 3 QA tasks
+    # Split batch across 4 generators: 3 QA tasks + control; remainder goes to a random chunk
     n_generators = 4
     chunk_size = batch_size // n_generators
     if chunk_size < 1:
         chunk_size = 1
+    remainder = batch_size - n_generators * chunk_size
+    chunk_sizes = [chunk_size] * n_generators
+    if remainder > 0:
+        chunk_sizes[random.randint(0, n_generators - 1)] += remainder
     
-    # Get settings for each QA task (3 chunks)
-    S_wif = get_settings_batch(chunk_size)
-    S_wwt = get_settings_batch(chunk_size)
-    S_wnm = get_settings_batch(chunk_size)
+    # Get settings for each QA task
+    S_wif = get_settings_batch(chunk_sizes[0])
+    S_wwt = get_settings_batch(chunk_sizes[1])
+    S_wnm = get_settings_batch(chunk_sizes[2])
     
     # Get images for each chunk
     imgs_wif = get_images(S_wif)
@@ -123,16 +127,15 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
     texts_wwt = whichWayTurn_generator_simple(S_wwt)
     texts_wnm = whatNextMove_generator_simple(S_wnm)
     
-    # Get control texts and images
-    ind = (batch_num * chunk_size) % num_controls
-    if ind + chunk_size > num_controls:
-        ind = num_controls - chunk_size
-    control_texts = get_text_batch(sdt, ind, chunk_size)
-    S_control = get_settings_batch(chunk_size)
+    # Control chunk
+    ind = (batch_num * chunk_sizes[3]) % num_controls
+    if ind + chunk_sizes[3] > num_controls:
+        ind = num_controls - chunk_sizes[3]
+    control_texts = get_text_batch(sdt, ind, chunk_sizes[3])
+    S_control = get_settings_batch(chunk_sizes[3])
     imgs_control = get_images(S_control)
     
     # Pad all texts to the same length before concatenation
-    # Order: wif, wwt, wnm, control (task first so demo images show task output)
     text_list = [texts_wif, texts_wwt, texts_wnm, control_texts]
     max_len = max(t.size(1) for t in text_list)
     padded_texts = []
@@ -142,31 +145,23 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
             t = torch.cat([t, pad], dim=1)
         padded_texts.append(t)
     
-    # Concatenate all texts and images in consistent order
-    # Order: wif, wwt, wnm, control (task first so demo images show task output)
     all_texts = torch.cat(padded_texts, dim=0)
     all_imgs = torch.cat([imgs_wif, imgs_wwt, imgs_wnm, imgs_control], dim=0)
     
     # Single forward pass with image reconstruction
     all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_imgs, ret_imgs=True)
     
-    # Compute text losses for each chunk
-    # all_probs has shape (batch, vocab, seq_len) - slice on batch dimension (dim 0)
+    # Compute text losses per chunk (using variable chunk sizes)
     text_losses = []
-    for i in range(n_generators):
-        start_idx = i * chunk_size
-        end_idx = (i + 1) * chunk_size
-        chunk_probs = all_probs[start_idx:end_idx, :, :]
-        chunk_texts = all_texts[start_idx:end_idx]
+    offset = 0
+    for cs in chunk_sizes:
+        chunk_probs = all_probs[offset:offset + cs, :, :]
+        chunk_texts = all_texts[offset:offset + cs]
         text_losses.append(get_text_loss(chunk_probs, chunk_texts))
+        offset += cs
     
-    # Compute image loss
     img_loss = img_criterion(all_recon, all_imgs)
-    
-    # Total text loss
     text_loss = sum(text_losses)
-    
-    # Combined loss (same weighting as control framework)
     loss = img_loss + (text_loss / 1000)
 
     if training:

@@ -48,25 +48,28 @@ def _gold_direction_batch(batch_size, model, optimizer=None, batch_num=0, random
     if training and (optimizer is None):
         raise ValueError("Must provide an optimizer if training")
 
-    # Split batch across 2 generators: control + 1 QA task
+    # Split batch across 2 generators: task + control; remainder goes to a random chunk
     n_generators = 2
     chunk_size = batch_size // n_generators
     if chunk_size < 1:
         chunk_size = 1
+    remainder = batch_size - n_generators * chunk_size
+    chunk_sizes = [chunk_size] * n_generators
+    if remainder > 0:
+        chunk_sizes[random.randint(0, n_generators - 1)] += remainder
     
-    # Get task data (images and texts together)
-    imgs_task, task_texts = get_gold_direction_data(chunk_size)
+    # Task chunk
+    imgs_task, task_texts = get_gold_direction_data(chunk_sizes[0])
     
-    # Get control texts and images
-    ind = (batch_num * chunk_size) % num_controls
-    if ind + chunk_size > num_controls:
-        ind = num_controls - chunk_size
-    control_texts = get_text_batch(sdt, ind, chunk_size)
-    S_control = get_settings_batch(chunk_size)
+    # Control chunk
+    ind = (batch_num * chunk_sizes[1]) % num_controls
+    if ind + chunk_sizes[1] > num_controls:
+        ind = num_controls - chunk_sizes[1]
+    control_texts = get_text_batch(sdt, ind, chunk_sizes[1])
+    S_control = get_settings_batch(chunk_sizes[1])
     imgs_control = get_images(S_control)
     
-    # Pad all texts to the same length before concatenation
-    # Order: task, control (task first so demo images show task output)
+    # Pad texts to same length
     text_list = [task_texts, control_texts]
     max_len = max(t.size(1) for t in text_list)
     padded_texts = []
@@ -76,31 +79,23 @@ def _gold_direction_batch(batch_size, model, optimizer=None, batch_num=0, random
             t = torch.cat([t, pad], dim=1)
         padded_texts.append(t)
     
-    # Concatenate all texts and images in consistent order
-    # Order: task, control (task first so demo images show task output)
     all_texts = torch.cat(padded_texts, dim=0)
     all_imgs = torch.cat([imgs_task, imgs_control], dim=0)
     
-    # Single forward pass with image reconstruction
+    # Single forward pass
     all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_imgs, ret_imgs=True)
     
-    # Compute text losses for each chunk
-    # all_probs has shape (batch, vocab, seq_len) - slice on batch dimension (dim 0)
+    # Text losses per chunk
     text_losses = []
-    for i in range(n_generators):
-        start_idx = i * chunk_size
-        end_idx = (i + 1) * chunk_size
-        chunk_probs = all_probs[start_idx:end_idx, :, :]
-        chunk_texts = all_texts[start_idx:end_idx]
+    offset = 0
+    for cs in chunk_sizes:
+        chunk_probs = all_probs[offset:offset + cs, :, :]
+        chunk_texts = all_texts[offset:offset + cs]
         text_losses.append(get_text_loss(chunk_probs, chunk_texts))
+        offset += cs
     
-    # Compute image loss
     img_loss = img_criterion(all_recon, all_imgs)
-    
-    # Total text loss
     text_loss = sum(text_losses)
-    
-    # Combined loss (same weighting as control framework)
     loss = img_loss + (text_loss / 1000)
 
     if training:

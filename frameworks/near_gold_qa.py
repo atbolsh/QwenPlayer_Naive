@@ -52,25 +52,55 @@ def _gold_proximity_batch(batch_size, model, optimizer=None, batch_num=0, random
     if training and (optimizer is None):
         raise ValueError("Must provide an optimizer if training")
 
-    imgs, task_texts = get_gold_proximity_data(batch_size)
-        
-    ind = (batch_num * batch_size) % num_controls
-    if ind + batch_size > num_controls:
-        ind = num_controls - batch_size
-    control_texts = get_text_batch(sdt, ind, batch_size)
+    # 2 generators: task + control; remainder goes to a random chunk
+    n_generators = 2
+    chunk_size = batch_size // n_generators
+    if chunk_size < 1:
+        chunk_size = 1
+    remainder = batch_size - n_generators * chunk_size
+    chunk_sizes = [chunk_size] * n_generators
+    if remainder > 0:
+        chunk_sizes[random.randint(0, n_generators - 1)] += remainder
 
-    all_texts = [control_texts, task_texts]
-    text_inds = list(range(2))
-    
-    if random_order:
-        random.shuffle(text_inds)
+    # Task chunk
+    imgs_task, task_texts = get_gold_proximity_data(chunk_sizes[0])
 
-    all_probs = [0 for _ in text_inds]
-    for t_ind in text_inds:
-        all_probs[t_ind] = model_forward_with_tokens(model, all_texts[t_ind], imgs, ret_imgs=False)
+    # Control chunk
+    ind = (batch_num * chunk_sizes[1]) % num_controls
+    if ind + chunk_sizes[1] > num_controls:
+        ind = num_controls - chunk_sizes[1]
+    control_texts = get_text_batch(sdt, ind, chunk_sizes[1])
+    S_control = get_settings_batch(chunk_sizes[1])
+    imgs_control = get_images(S_control)
 
-    all_losses = [get_text_loss(all_probs[i], all_texts[i]) for i in range(2)]
-    loss = sum(all_losses)
+    # Pad texts to same length
+    text_list = [task_texts, control_texts]
+    max_len = max(t.size(1) for t in text_list)
+    padded_texts = []
+    for t in text_list:
+        if t.size(1) < max_len:
+            pad = torch.zeros(t.size(0), max_len - t.size(1), dtype=t.dtype, device=t.device)
+            t = torch.cat([t, pad], dim=1)
+        padded_texts.append(t)
+
+    all_texts = torch.cat(padded_texts, dim=0)
+    all_imgs = torch.cat([imgs_task, imgs_control], dim=0)
+
+    # Single forward pass
+    all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_imgs, ret_imgs=True)
+
+    # Text losses per chunk
+    text_losses = []
+    offset = 0
+    for cs in chunk_sizes:
+        chunk_probs = all_probs[offset:offset + cs, :, :]
+        chunk_texts = all_texts[offset:offset + cs]
+        text_losses.append(get_text_loss(chunk_probs, chunk_texts))
+        offset += cs
+
+    img_loss = img_criterion(all_recon, all_imgs)
+    text_loss = sum(text_losses)
+    loss = img_loss + (text_loss / 1000)
 
     if training:
         loss.backward()
@@ -79,12 +109,14 @@ def _gold_proximity_batch(batch_size, model, optimizer=None, batch_num=0, random
         model.soft_reset()
 
     if printing:
-        print(f"Total loss: {loss.item()}:\n{all_losses[0].item()} control,\n{all_losses[1].item()} gold proximity\n\n")
+        print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
+              f"  {text_losses[0].item()} gold proximity,\n"
+              f"  {text_losses[1].item()} control\n")
 
     if reset_model:
         model.reset()
 
-    return (loss.item(), all_losses[0].item(), all_losses[1].item())
+    return (loss.item(), text_losses[1].item(), text_losses[0].item())
 
 
 def gold_proximity_batch(batch_size, model, optimizer=None, batch_num=0, compute_grad=False, random_order=True, model_eval=True, reset_model=True, printing=True, training=False, use_lora=False):
