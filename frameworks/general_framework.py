@@ -75,7 +75,7 @@ def create_model(model_name: str = "Qwen/Qwen3-0.6B", device=None, use_lora: boo
     return model
 
 
-def apply_lora_to_text(model, r=4, lora_alpha=16, lora_dropout=0.1):
+def apply_lora_to_text(model, r=32, lora_alpha=64, lora_dropout=0.1):
     """
     Apply LoRA adapters to the text model (Qwen) for efficient training.
     
