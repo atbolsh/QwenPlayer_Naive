@@ -304,7 +304,7 @@ def model_forward_with_tokens(model, text_batch, img_batch, ret_imgs=True,
 
 ent_criterion = nn.CrossEntropyLoss(
     ignore_index=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0,
-    label_smoothing=0.1,
+    label_smoothing=0.01,
 )
 
 def get_text_loss(res, inputs):
