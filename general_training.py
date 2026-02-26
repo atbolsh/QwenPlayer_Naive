@@ -48,7 +48,7 @@ warnings.filterwarnings('ignore')
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
 # ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_full_training_v3_merged_batch81000.pth"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_all_qa_tasks_focus_merged_batch49000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_v2_batch6000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_batch5000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_vision_weights_initialized.pth"
@@ -59,7 +59,7 @@ DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_full_training
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "qwen_agent_all_qa_tasks_focus"
+DEFAULT_SAVE_PREFIX = "qwen_agent_all_qa_tasks_focus_v2"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -357,7 +357,14 @@ def train(
                 f"{checkpoint_prefix}_batch{b + 1}.pth"
             )
             torch.save(state_dict, checkpoint_path)
-            is_enduring = (b + 1) % (10 * save_every) == 0
+            batch_num = b + 1
+            # Tiered endurance: <=10k keep all, <=100k keep 10k multiples, >100k keep 100k multiples
+            if batch_num <= 10000:
+                is_enduring = True
+            elif batch_num <= 100000:
+                is_enduring = (batch_num % 10000 == 0)
+            else:
+                is_enduring = (batch_num % 100000 == 0)
             print(f"Checkpoint saved: {checkpoint_path}" + (" (enduring)" if is_enduring else ""))
             
             # If using LoRA, also save a merged version
@@ -371,13 +378,18 @@ def train(
                 torch.save(merged_state, merged_path)
                 print(f"Merged checkpoint saved: {merged_path}")
             
-            # Delete previous checkpoint unless:
-            #  - it was "enduring" (every 10*save_every), OR
-            #  - it was in the early phase (batch <= 10000) where we keep everything
+            # Delete previous checkpoint unless it was enduring
+            def _is_enduring(bn):
+                if bn <= 10000:
+                    return True
+                elif bn <= 100000:
+                    return (bn % 10000 == 0)
+                else:
+                    return (bn % 100000 == 0)
+
             should_delete_prev = (
                 prev_checkpoint_path is not None
-                and prev_checkpoint_batch > 10000
-                and prev_checkpoint_batch % (10 * save_every) != 0
+                and not _is_enduring(prev_checkpoint_batch)
             )
             if should_delete_prev:
                 if os.path.exists(prev_checkpoint_path):
