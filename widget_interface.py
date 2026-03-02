@@ -309,12 +309,20 @@ class WidgetInterface:
             outputs = result.get('outputs')
             if outputs is not None and hasattr(outputs, 'logits'):
                 logits = outputs.logits  # (batch, seq_len, vocab_size)
-                # Get logits at the LAST REAL token position (not last pad)
                 last_real_idx = n_real - 1
                 last_logits = logits[0, last_real_idx]  # (vocab_size,)
                 next_token = torch.argmax(last_logits).item()
                 
                 print(f"Output token: ID={next_token}, decoded={self.tokenizer.decode([next_token])!r}")
+                
+                # If the generated token is a special token, print logit table for custom range
+                if next_token > 151642:
+                    print(f"\n--- Special token logits (151643–151671) ---")
+                    for tid in range(151643, 151672):
+                        tok_str = self.tokenizer.decode([tid])
+                        logit_val = last_logits[tid].item()
+                        print(f"  {tid}: {logit_val:+10.4f}  {tok_str!r}")
+                    print(f"--- end ---\n")
                 
                 # Check for special action tokens
                 if next_token in self.action_token_set:
