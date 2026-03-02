@@ -48,7 +48,8 @@ warnings.filterwarnings('ignore')
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
 # ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_all_qa_tasks_focus_batch49000.pth"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_all_qa_tasks_focus_v2_batch241000.pth"
+#DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_all_qa_tasks_focus_batch49000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_v2_batch6000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_batch5000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_vision_weights_initialized.pth"
@@ -59,7 +60,7 @@ DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_all_qa_tasks_focus_batch
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "qwen_agent_all_qa_tasks_focus_v2"
+DEFAULT_SAVE_PREFIX = "qwen_agent_all_qa_tasks_focus_v3"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
