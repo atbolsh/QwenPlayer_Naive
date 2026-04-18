@@ -11,7 +11,7 @@ prompts_imagineWithoutYou = [
     "How would this look without an agent?"
 ]
 
-prompts_imagineWithoutYou_tensor = tensorify_list(prompts_imagineWithoutYou)
+prompts_imagineWithoutYou_tensor = append_stop_token(tensorify_list(prompts_imagineWithoutYou))
 
 ########
 

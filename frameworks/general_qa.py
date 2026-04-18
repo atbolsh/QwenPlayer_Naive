@@ -3,6 +3,25 @@
 
 from .general_framework import *
 
+STOP_TOKEN_ID = 151645  # <|im_end|>
+
+
+def append_stop_token(tensor):
+    """Replace the first padding position in each row with the stop token.
+
+    Works on tensors produced by ``tensorify_list`` / ``encode_batch``.
+    If a row has no padding (entirely filled), it is left unchanged.
+    """
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+    result = tensor.clone()
+    for i in range(result.size(0)):
+        for j in range(result.size(1)):
+            tok = result[i, j].item()
+            if tok == pad_id or tok == 0:
+                result[i, j] = STOP_TOKEN_ID
+                break
+    return result
+
 def tensorify_list(text_list, device=device):
     """Convert a list of text strings to a tensor of token ids using Qwen tokenizer."""
     encoded = tokenizer(
@@ -44,13 +63,24 @@ def simple_sample(batchsize, prompts, device=device):
 ########
 
 def _stitch(prompt, reply, container, length):
-    """Stitch a prompt and reply together into a container tensor."""
+    """Stitch a prompt and reply together into a container tensor, with stop token."""
     container[:prompt.size()[0]] = prompt
     # Use a space token - get from tokenizer
     space_token_id = tokenizer.encode(' ', add_special_tokens=False)[0] if tokenizer.encode(' ', add_special_tokens=False) else 220
     container[length] = space_token_id
     reply_len = reply.size()[0] - 1
     container[length+1:length+reply_len+1] = reply[1:]
+
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+    stop_pos = length + 1
+    for j in range(reply_len):
+        tok = reply[1 + j].item()
+        if tok == pad_id or tok == 0 or tok == STOP_TOKEN_ID:
+            break
+        stop_pos += 1
+    if stop_pos < container.size(0):
+        container[stop_pos] = STOP_TOKEN_ID
+
     return container
 
 def text_generator(settings_batch, prompts, yes_responses, no_responses, prompt_lengths, func, device=device):

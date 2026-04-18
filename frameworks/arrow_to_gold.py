@@ -2,6 +2,7 @@
 # Task: Draw a line from the agent to the nearest gold
 
 from .general_framework import *
+from .general_qa import append_stop_token
 
 task1_prompts = [
     "Imagine the line from the agent to the nearest gold.",
@@ -12,7 +13,7 @@ task1_prompts = [
     "From the agent to the nearest coin, please draw a path."
 ]
 
-task1_text_tensor = encode_batch(task1_prompts).contiguous().to(device)
+task1_text_tensor = append_stop_token(encode_batch(task1_prompts)).contiguous().to(device)
 
 ########
 

@@ -14,7 +14,7 @@ prompts_imagineCloser2Gold = [
     "Picture yourself being much closer to the gold."
 ]
 
-prompts_imagineCloser2Gold_tensor = tensorify_list(prompts_imagineCloser2Gold)
+prompts_imagineCloser2Gold_tensor = append_stop_token(tensorify_list(prompts_imagineCloser2Gold))
 
 ########
 

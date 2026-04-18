@@ -38,7 +38,7 @@ prompts_for_action_names = [
     "<anticlock> What was that?? Counter-clockwise turn."
 ]
 
-prompts_for_action_names_tensor = tensorify_list(prompts_for_action_names)
+prompts_for_action_names_tensor = append_stop_token(tensorify_list(prompts_for_action_names))
 
 
 def _direction_names_batch(batch_size, model, optimizer=None, batch_num=0, random_order=True, model_eval=True, reset_model=True, printing=True, training=False, use_lora=False):

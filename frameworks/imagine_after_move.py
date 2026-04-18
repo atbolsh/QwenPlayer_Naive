@@ -29,7 +29,7 @@ prompts_imagineAfterMove = [
     "What does this look like if you take 2 steps forward then one step CCW?"
 ]
 
-prompts_imagineAfterMove_tensor = tensorify_list(prompts_imagineAfterMove)
+prompts_imagineAfterMove_tensor = append_stop_token(tensorify_list(prompts_imagineAfterMove))
 
 CW_small = "<clock>" * 5
 CCW_small = "<anticlock>" * 5

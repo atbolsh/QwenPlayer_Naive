@@ -12,7 +12,7 @@ prompts_imagineWithoutGold = [
     "Can you imagine how this would look once you eat all the gold?"
 ]
 
-prompts_imagineWithoutGold_tensor = tensorify_list(prompts_imagineWithoutGold)
+prompts_imagineWithoutGold_tensor = append_stop_token(tensorify_list(prompts_imagineWithoutGold))
 
 ########
 

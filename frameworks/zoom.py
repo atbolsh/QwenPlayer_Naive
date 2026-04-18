@@ -12,7 +12,7 @@ prompts_zoomAgent = [
     "Zoom in on the agent."
 ]
 
-prompts_zoomAgent_tensor = tensorify_list(prompts_zoomAgent)
+prompts_zoomAgent_tensor = append_stop_token(tensorify_list(prompts_zoomAgent))
 
 prompts_zoomGold = [
     "Zoom in on just the gold, please.",
@@ -21,7 +21,7 @@ prompts_zoomGold = [
     "Zoom in on gold, please."
 ]
 
-prompts_zoomGold_tensor = tensorify_list(prompts_zoomGold)
+prompts_zoomGold_tensor = append_stop_token(tensorify_list(prompts_zoomGold))
 
 prompts_zoomHalfway = [
     "Zoom in on the path, please.",
@@ -30,7 +30,7 @@ prompts_zoomHalfway = [
     "Zoom in on the path."
 ]
 
-prompts_zoomHalfway_tensor = tensorify_list(prompts_zoomHalfway)
+prompts_zoomHalfway_tensor = append_stop_token(tensorify_list(prompts_zoomHalfway))
 
 ########
 

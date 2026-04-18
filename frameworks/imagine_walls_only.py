@@ -12,7 +12,7 @@ prompts_imagineWallsOnly = [
     "Can you imagine how this will look once you eat the gold and leave?"
 ]
 
-prompts_imagineWallsOnly_tensor = tensorify_list(prompts_imagineWallsOnly)
+prompts_imagineWallsOnly_tensor = append_stop_token(tensorify_list(prompts_imagineWallsOnly))
 
 ########
 

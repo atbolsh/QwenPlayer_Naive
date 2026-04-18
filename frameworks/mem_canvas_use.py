@@ -4,6 +4,7 @@
 # Canvas order in image_encodings: [oldest_canvas, ..., newest_canvas, current_input]
 
 from .general_framework import *
+from .general_qa import append_stop_token
 
 # Max lookback: 3 canvases + 1 current = 4 possible images
 MAX_LOOKBACK = 4
@@ -129,7 +130,7 @@ def _mem_canvas_batch(batch_size, model, optimizer=None, batch_num=0, random_ord
         dt_len = default_texts.size(1)
         padded_prompt_tensor[:num_default, :dt_len] += default_texts
     if num_recall > 0:
-        recall_tensor = encode_batch(recall_prompts).contiguous().to(device)
+        recall_tensor = append_stop_token(encode_batch(recall_prompts)).contiguous().to(device)
         rt_len = recall_tensor.size(1)
         padded_prompt_tensor[num_default:, :rt_len] += recall_tensor
 

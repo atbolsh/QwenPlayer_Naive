@@ -11,7 +11,7 @@ initializations_comparisonv1 = [
     "You have to see two images for this task, wait a moment."
 ]
 
-initializations_comparisonv1_tensor = tensorify_list(initializations_comparisonv1)
+initializations_comparisonv1_tensor = append_stop_token(tensorify_list(initializations_comparisonv1))
 
 prompts_comparisonv1 = [
     "Is the first or the second better, do you think?",

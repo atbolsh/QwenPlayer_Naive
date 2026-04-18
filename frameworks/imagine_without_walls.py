@@ -12,7 +12,7 @@ prompts_imagineWithoutWalls = [
     "Can you imagine how this would look with no barriers at all?"
 ]
 
-prompts_imagineWithoutWalls_tensor = tensorify_list(prompts_imagineWithoutWalls)
+prompts_imagineWithoutWalls_tensor = append_stop_token(tensorify_list(prompts_imagineWithoutWalls))
 
 ########
 

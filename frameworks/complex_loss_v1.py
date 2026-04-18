@@ -2,6 +2,7 @@
 # Task: Move agent closer to gold with differentiable image analysis
 
 from .general_framework import *
+from .general_qa import append_stop_token
 from copy import deepcopy
 
 # Import image analysis utilities
@@ -17,7 +18,7 @@ prompts_move_agent_closer = [
     "Please imagine the agent somewhere closer to the gold."
 ]
 
-complex_loss_text_tensor = encode_batch(prompts_move_agent_closer).contiguous().to(device)
+complex_loss_text_tensor = append_stop_token(encode_batch(prompts_move_agent_closer)).contiguous().to(device)
 
 
 def complex_loss_text_sample(num_sample=40):

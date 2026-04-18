@@ -14,7 +14,7 @@ prompts_imagineFacingGold = [
     "Imagine what it would look like if you were facing the gold"
 ]
 
-prompts_imagineFacingGold_tensor = tensorify_list(prompts_imagineFacingGold)
+prompts_imagineFacingGold_tensor = append_stop_token(tensorify_list(prompts_imagineFacingGold))
 
 ########
 
