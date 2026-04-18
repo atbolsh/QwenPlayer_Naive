@@ -14,7 +14,8 @@ from .general_framework import (
 
 from .general_qa import (
     tensorify_list, get_lens, simple_sample,
-    text_generator, text_generator_simple, text_generator_simple_GENERAL
+    text_generator, text_generator_simple, text_generator_simple_GENERAL,
+    text_generator_dpo, text_generator_dpo_GENERAL, get_dpo_text_loss,
 )
 
 from .game_logic_solver import (
@@ -57,6 +58,7 @@ __all__ = [
     'get_settings_batch', 'get_images', 'G', 'game_settings',
     'tensorify_list', 'get_lens', 'simple_sample',
     'text_generator', 'text_generator_simple', 'text_generator_simple_GENERAL',
+    'text_generator_dpo', 'text_generator_dpo_GENERAL', 'get_dpo_text_loss',
     
     # Game logic
     'gold_direction_angle', 'will_intersect_forward', 'true_angle_difference_magnitude',

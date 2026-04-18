@@ -15,8 +15,8 @@ prompts_willIntersectForward = [
     "You don't need to turn, right?"
 ]
 
-Yreplies_willIntersectForward = ["Yep", "Absolutely.", "Certainly", "I think so.", "Uh-huh.", "Sure"]
-Nreplies_willIntersectForward = ["Nuh-uh", "No", "I don't think so.", "Certainly not", "Absolutely not", "Nah"]
+Yreplies_willIntersectForward = ["Yes"]
+Nreplies_willIntersectForward = ["No"]
 
 prompts_whichWayTurn = [
     "Which way should you turn, do you figure?",
@@ -25,8 +25,8 @@ prompts_whichWayTurn = [
     "How should you turn?"
 ]
 
-CWreplies_whichWayTurn = ["Clockwise", "I should turn clockwise", "CW", "Clockwise, sir!"]
-CCWreplies_whichWayTurn = ["Counter-clockwise", "I should turn counter-clockwise", "CCW", "Counter-clockwise, sir!"]
+CWreplies_whichWayTurn = ["Clockwise"]
+CCWreplies_whichWayTurn = ["Counter-clockwise"]
 
 prompts_whatNextMove = [
     "Damn it, what's the move here, partner?",
@@ -36,7 +36,7 @@ prompts_whatNextMove = [
     "What's the move?"
 ]
 
-Freplies_whatNextMove = ["Just go straight.", "We just go straight", "Full speed ahead!"]
+Freplies_whatNextMove = ["Forward"]
 CWreplies_whatNextMove = CWreplies_whichWayTurn
 CCWreplies_whatNextMove = CCWreplies_whichWayTurn
 
@@ -70,24 +70,32 @@ throwaway_index_helper = {1: 0, 3: 1, 4: 2}
 best_move = lambda settings: throwaway_index_helper[best_move_forward(discreteGame(deepcopy(settings)))]
 
 ########
+# DPO text generators
 
-willIntersectForward_generator_simple = lambda settings_batch: text_generator_simple(
+willIntersectForward_generator_dpo = lambda settings_batch: text_generator_dpo(
     settings_batch, prompts_willIntersectForward_tensor, Yreplies_willIntersectForward_tensor,
     Nreplies_willIntersectForward_tensor, prompts_willIntersectForward_lens, willIntersectForward, device
 )
 
-whichWayTurn_generator_simple = lambda settings_batch: text_generator_simple(
+whichWayTurn_generator_dpo = lambda settings_batch: text_generator_dpo(
     settings_batch, prompts_whichWayTurn_tensor, CWreplies_whichWayTurn_tensor,
     CCWreplies_whichWayTurn_tensor, prompts_whichWayTurn_lens, best_turn_cw, device
 )
 
-whatNextMove_generator_simple = lambda settings_batch: text_generator_simple_GENERAL(
+whatNextMove_generator_dpo = lambda settings_batch: text_generator_dpo_GENERAL(
     settings_batch, prompts_whatNextMove_tensor,
     [Freplies_whatNextMove_tensor, CWreplies_whatNextMove_tensor, CCWreplies_whatNextMove_tensor],
     prompts_whatNextMove_lens, best_move, device
 )
 
 ########
+
+def _pad_to_len(tensor, target_len):
+    if tensor.size(1) < target_len:
+        pad = torch.zeros(tensor.size(0), target_len - tensor.size(1), dtype=tensor.dtype, device=tensor.device)
+        return torch.cat([tensor, pad], dim=1)
+    return tensor
+
 
 def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random_order=True, model_eval=True, reset_model=True, printing=True, training=False, use_lora=False):
     if training and model_eval:
@@ -122,10 +130,10 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
     imgs_wwt = get_images(S_wwt)
     imgs_wnm = get_images(S_wnm)
     
-    # Generate texts for each chunk using corresponding settings
-    texts_wif = willIntersectForward_generator_simple(S_wif)
-    texts_wwt = whichWayTurn_generator_simple(S_wwt)
-    texts_wnm = whatNextMove_generator_simple(S_wnm)
+    # Generate DPO texts for each chunk
+    correct_wif, wrong_wif, lens_wif = willIntersectForward_generator_dpo(S_wif)
+    correct_wwt, wrong_wwt, lens_wwt = whichWayTurn_generator_dpo(S_wwt)
+    correct_wnm, wrong_wnm, lens_wnm = whatNextMove_generator_dpo(S_wnm)
     
     # Control chunk
     ind = (batch_num * chunk_sizes[3]) % num_controls
@@ -135,33 +143,50 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
     S_control = get_settings_batch(chunk_sizes[3])
     imgs_control = get_images(S_control)
     
-    # Pad all texts to the same length before concatenation
-    text_list = [texts_wif, texts_wwt, texts_wnm, control_texts]
-    max_len = max(t.size(1) for t in text_list)
-    padded_texts = []
-    for t in text_list:
-        if t.size(1) < max_len:
-            pad = torch.zeros(t.size(0), max_len - t.size(1), dtype=t.dtype, device=t.device)
-            t = torch.cat([t, pad], dim=1)
-        padded_texts.append(t)
-    
-    all_texts = torch.cat(padded_texts, dim=0)
+    # Pad all texts to the same length
+    correct_list = [correct_wif, correct_wwt, correct_wnm]
+    wrong_list = [wrong_wif, wrong_wwt, wrong_wnm]
+    all_text_list = correct_list + wrong_list + [control_texts]
+    max_len = max(t.size(1) for t in all_text_list)
+
+    correct_list = [_pad_to_len(t, max_len) for t in correct_list]
+    wrong_list = [_pad_to_len(t, max_len) for t in wrong_list]
+    control_texts = _pad_to_len(control_texts, max_len)
+
+    all_correct = torch.cat(correct_list, dim=0)
+    all_wrong = torch.cat(wrong_list, dim=0)
+    all_lens = torch.cat([lens_wif, lens_wwt, lens_wnm], dim=0)
+
+    all_texts = torch.cat([all_correct, control_texts], dim=0)
     all_imgs = torch.cat([imgs_wif, imgs_wwt, imgs_wnm, imgs_control], dim=0)
     
     # Single forward pass with image reconstruction
     all_probs, all_recon = model_forward_with_tokens(model, all_texts, all_imgs, ret_imgs=True)
     
-    # Compute text losses per chunk (using variable chunk sizes)
-    text_losses = []
+    # DPO losses for task chunks
+    task_total = sum(chunk_sizes[:3])
+    task_dpo_losses = []
     offset = 0
-    for cs in chunk_sizes:
-        chunk_probs = all_probs[offset:offset + cs, :, :]
-        chunk_texts = all_texts[offset:offset + cs]
-        text_losses.append(get_text_loss(chunk_probs, chunk_texts))
+    wrong_offset = 0
+    for i in range(3):
+        cs = chunk_sizes[i]
+        task_dpo_losses.append(get_dpo_text_loss(
+            all_probs[offset:offset + cs, :, :],
+            all_texts[offset:offset + cs],
+            all_wrong[wrong_offset:wrong_offset + cs],
+            all_lens[wrong_offset:wrong_offset + cs]
+        ))
         offset += cs
+        wrong_offset += cs
+
+    # CE loss for control chunk
+    control_probs = all_probs[task_total:, :, :]
+    ctrl_texts = all_texts[task_total:]
+    control_loss = get_text_loss(control_probs, ctrl_texts)
     
     img_loss = img_criterion(all_recon, all_imgs)
-    text_loss = sum(text_losses)
+    task_dpo_total = sum(task_dpo_losses)
+    text_loss = task_dpo_total + control_loss
     loss = img_loss + (text_loss / 1000)
 
     if training:
@@ -172,15 +197,15 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
 
     if printing:
         print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
-              f"  {text_losses[0].item()} willIntersectForward,\n"
-              f"  {text_losses[1].item()} whichWayTurn,\n"
-              f"  {text_losses[2].item()} whatNextMove,\n"
-              f"  {text_losses[3].item()} control\n")
+              f"  {task_dpo_losses[0].item()} willIntersectForward (DPO),\n"
+              f"  {task_dpo_losses[1].item()} whichWayTurn (DPO),\n"
+              f"  {task_dpo_losses[2].item()} whatNextMove (DPO),\n"
+              f"  {control_loss.item()} control\n")
 
     if reset_model:
         model.reset()
 
-    return (loss.item(), text_losses[0].item(), text_losses[1].item(), text_losses[2].item(), text_losses[3].item(), img_loss.item())
+    return (loss.item(), task_dpo_losses[0].item(), task_dpo_losses[1].item(), task_dpo_losses[2].item(), control_loss.item(), img_loss.item())
 
 
 def relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, compute_grad=False, random_order=True, model_eval=True, reset_model=True, printing=True, training=False, use_lora=False):
