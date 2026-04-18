@@ -35,6 +35,7 @@ from frameworks import (
     imagineWithoutWalls_task_batch, imagineWallsOnly_task_batch,
     imagineFacingGold_task_batch, imagineCloser2Gold_task_batch,
     imagineAfterMove_task_batch,
+    primary_solver_batch,
 )
 
 # Suppress warnings for cleaner output
@@ -477,6 +478,7 @@ FRAMEWORK_DEMO_INFO = {
     imagineFacingGold_task_batch: ("imagine_facing_gold", "Show me facing the gold."),
     imagineCloser2Gold_task_batch: ("imagine_closer_to_gold", "Show me closer to the gold."),
     imagineAfterMove_task_batch: ("imagine_after_move", "Show me after moving."),
+    primary_solver_batch: ("primary_solver", "Solve"),
 }
 
 
@@ -498,6 +500,7 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
         (please_turn_batch, 8),
         (relposition_qa_batch, 8),
         (direction_names_batch, 8),
+        (primary_solver_batch, 24),
         # (zoom_task_batch, 2),
         # (imagineWithoutYou_task_batch, 2),
         # (imagineWithoutGold_task_batch, 2),
@@ -514,7 +517,7 @@ def main():
     parser.add_argument("--use_lora", action="store_true", help="Use LoRA adapters")
     parser.add_argument("--num_batches", type=int, default=10000000000, help="Number of training batches")
     parser.add_argument("--batch_size", type=int, default=30, help="Batch size (halved for float32)")
-    parser.add_argument("--lr", type=float, default=1e-5, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-6, help="Learning rate")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N batches")
     parser.add_argument("--print_every", type=int, default=100, help="Print progress every N batches")
     parser.add_argument("--checkpoint_prefix", type=str, default=DEFAULT_SAVE_PREFIX, help="Checkpoint filename prefix")
