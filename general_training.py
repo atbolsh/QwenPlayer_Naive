@@ -500,7 +500,7 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
         (please_turn_batch, 8),
         (relposition_qa_batch, 8),
         (direction_names_batch, 8),
-        (primary_solver_batch, 24),
+        (primary_solver_batch, 48),
         # (zoom_task_batch, 2),
         # (imagineWithoutYou_task_batch, 2),
         # (imagineWithoutGold_task_batch, 2),
