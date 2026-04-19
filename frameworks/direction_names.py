@@ -7,6 +7,7 @@
 
 from .general_framework import *
 from .general_qa import *
+from .general_qa import _stitch
 
 # --- Sub-task A: Instruction -> action token ---
 
