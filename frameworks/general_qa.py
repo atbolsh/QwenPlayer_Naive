@@ -278,9 +278,9 @@ def get_dpo_text_loss(logits, correct_texts, wrong_texts, prompt_lens, beta=0.1,
     sft_loss = (ce_per_pos * answer_mask).sum(dim=1) / answer_mask.sum(dim=1).clamp(min=1)
     sft_loss = sft_loss.mean()
 
-    # Accuracy: fraction of answer positions where model's argmax is correct
+    # Accuracy: at positions where correct != wrong, is the correct token the argmax?
     argmax_tokens = shifted_logits.argmax(dim=1)  # (batch, seq_len-1)
-    correct_match = ((argmax_tokens == correct_targets).float() * answer_mask).sum()
-    accuracy = correct_match / answer_mask.sum().clamp(min=1)
+    correct_match = ((argmax_tokens == correct_targets).float() * dpo_mask).sum()
+    accuracy = correct_match / dpo_mask.sum().clamp(min=1)
 
     return dpo_loss + sft_weight * sft_loss, accuracy.item()
