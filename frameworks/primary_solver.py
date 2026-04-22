@@ -66,12 +66,12 @@ def primary_solver_data(batch_size):
         trace_len = len(trace)
         max_cut = min(MAX_MOVE_PREFIX, trace_len)
         # 20% chance: prompt alone (cut=1, predict first action)
-        # 20% chance: full trace (cut=trace_len, predict <|im_end|>)
-        # 60% chance: uniform over 1..max_cut
+        # 20% chance: full trace (cut=trace_len, predict <|im_end|>) — only if it fits
+        # 60% chance (+ overflow from full trace): uniform over 1..max_cut
         r = random.random()
         if r < 0.2:
             cut = 1
-        elif r < 0.4:
+        elif r < 0.4 and trace_len <= MAX_MOVE_PREFIX:
             cut = trace_len
         else:
             cut = random.randint(1, max_cut)
