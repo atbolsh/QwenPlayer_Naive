@@ -220,6 +220,7 @@ def train(
     save_every: int = 1000,
     print_every: int = 100,
     ledger_path: str = LEDGER_PATH,
+    suppress_errors: bool = True,
 ):
     """
     Train QwenAgentPlayer on multiple frameworks.
@@ -235,6 +236,7 @@ def train(
         save_every: Save checkpoint every N batches
         print_every: Print progress every N batches
         ledger_path: Path to save loss CSV
+        suppress_errors: If True, catch and log errors; if False, let them crash for debugging
     """
     # NOTE: LoRA is now applied in main() BEFORE checkpoint loading
     # This is necessary because checkpoints saved with LoRA have different key structure
@@ -312,9 +314,17 @@ def train(
                 for p in model.pipe.model.img_weight.parameters():
                     p.clamp_(-2.0, 2.0)
         except Exception as e:
-            print(f"Error in task {task_names[task_ind]}: {e}")
-            model.reset()
-            continue
+            if suppress_errors:
+                print(f"Error in task {task_names[task_ind]}: {e}")
+                model.reset()
+                continue
+            else:
+                import traceback
+                print(f"\n{'='*60}")
+                print(f"FATAL ERROR in task {task_names[task_ind]} (batch {b+1}):")
+                traceback.print_exc()
+                print(f"{'='*60}\n")
+                raise
         
         # Print progress and log to CSV
         if should_print:
@@ -524,6 +534,8 @@ def main():
     parser.add_argument("--checkpoint_prefix", type=str, default=DEFAULT_SAVE_PREFIX, help="Checkpoint filename prefix")
     parser.add_argument("--load_checkpoint", type=str, default=DEFAULT_INIT_CHECKPOINT, 
                         help="Path to checkpoint to load (default: DEFAULT_INIT_CHECKPOINT at top of file)")
+    parser.add_argument("--suppress_errors", action="store_true", default=False,
+                        help="Suppress per-batch errors (default: OFF for debugging, use flag to enable)")
     
     args = parser.parse_args()
     
@@ -618,6 +630,7 @@ def main():
         checkpoint_prefix=args.checkpoint_prefix,
         save_every=args.save_every,
         print_every=args.print_every,
+        suppress_errors=args.suppress_errors,
     )
 
 

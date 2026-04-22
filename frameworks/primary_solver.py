@@ -105,6 +105,11 @@ def primary_solver_data(batch_size):
 
         # Fill action tokens for moves 0..cut-1
         write_start = p_len + 1
+        last_write_idx = write_start + cut - 1
+        assert last_write_idx < total_len, (
+            f"OOB writing actions: sample {i}, write_start={write_start}, cut={cut}, "
+            f"last_write_idx={last_write_idx}, total_len={total_len}, "
+            f"p_len={p_len}, trace_len={trace_len}, is_full={is_full}")
         for j in range(cut):
             tok_id = ACTION_TO_TOKEN_ID[trace[j]]
             correct_tensor[i, write_start + j] = tok_id
@@ -113,19 +118,27 @@ def primary_solver_data(batch_size):
         if is_full:
             # Append <|im_end|> as the target after the last action
             target_pos = write_start + cut
+            assert target_pos < total_len, (
+                f"OOB full-trace target: sample {i}, target_pos={target_pos}, total_len={total_len}, "
+                f"write_start={write_start}, cut={cut}, p_len={p_len}, trace_len={trace_len}")
             correct_tensor[i, target_pos] = STOP_TOKEN_ID
-            # Wrong: a random action token instead of <|im_end|>
             wrong_token = random.choice(ALL_ACTION_IDS)
             wrong_tensor[i, target_pos] = wrong_token
             loss_positions[i] = target_pos
         else:
             # The last action token is the target; replace it in wrong_tensor
             target_pos = write_start + cut - 1
+            assert target_pos < total_len, (
+                f"OOB non-full target: sample {i}, target_pos={target_pos}, total_len={total_len}, "
+                f"write_start={write_start}, cut={cut}, p_len={p_len}, trace_len={trace_len}")
             correct_action = ACTION_TO_TOKEN_ID[trace[cut - 1]]
             wrong_action = random.choice([a for a in ALL_ACTION_IDS if a != correct_action])
             wrong_tensor[i, target_pos] = wrong_action
             loss_positions[i] = target_pos
-            # No <|im_end|>; rest stays zero-padded
+
+    max_lp = loss_positions.max().item()
+    assert max_lp < total_len, (
+        f"primary_solver_data: loss_positions max={max_lp} >= total_len={total_len}")
 
     imgs = torch.permute(imgs, (0, 3, 1, 2)).contiguous().to(device)
     return imgs, correct_tensor.contiguous(), wrong_tensor.contiguous(), loss_positions
@@ -146,6 +159,21 @@ def get_primary_solver_dpo_loss(logits, correct_texts, wrong_texts, loss_positio
         (loss, accuracy) tuple
     """
     batch_size = logits.size(0)
+    seq_len_logits = logits.size(2)
+    seq_len_texts = correct_texts.size(1)
+    max_lp = loss_positions.max().item()
+    min_lp = loss_positions.min().item()
+
+    assert seq_len_logits == seq_len_texts, (
+        f"get_primary_solver_dpo_loss: logits seq_len={seq_len_logits} != "
+        f"correct_texts seq_len={seq_len_texts}")
+    assert max_lp < seq_len_texts, (
+        f"get_primary_solver_dpo_loss: max loss_position={max_lp} >= "
+        f"correct_texts dim1={seq_len_texts}. loss_positions={loss_positions.tolist()}")
+    assert min_lp >= 1, (
+        f"get_primary_solver_dpo_loss: min loss_position={min_lp} < 1 "
+        f"(pred_position would be {min_lp - 1}). loss_positions={loss_positions.tolist()}")
+
     batch_idx = torch.arange(batch_size, device=logits.device)
 
     pred_positions = loss_positions - 1  # (batch,)
@@ -194,7 +222,17 @@ def _primary_solver_batch(batch_size, model, optimizer=None, batch_num=0, random
 
     imgs, correct_texts, wrong_texts, loss_positions = primary_solver_data(batch_size)
 
+    assert correct_texts.size(1) == wrong_texts.size(1), (
+        f"primary_solver_batch: correct_texts seq_len={correct_texts.size(1)} != "
+        f"wrong_texts seq_len={wrong_texts.size(1)}")
+
     task_probs, task_recon = model_forward_with_tokens(model, correct_texts, imgs, ret_imgs=True)
+
+    assert task_probs.size(2) == correct_texts.size(1), (
+        f"primary_solver_batch: model returned logits with seq_len={task_probs.size(2)} "
+        f"but correct_texts has seq_len={correct_texts.size(1)}. "
+        f"task_probs shape={tuple(task_probs.shape)}, "
+        f"correct_texts shape={tuple(correct_texts.shape)}")
 
     img_loss = img_criterion(task_recon, imgs)
     dpo_loss, accuracy = get_primary_solver_dpo_loss(task_probs, correct_texts, wrong_texts, loss_positions)
