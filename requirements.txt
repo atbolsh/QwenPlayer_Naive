@@ -4,9 +4,9 @@ torchvision>=0.15.0
 einops>=0.7.0
 
 # Hugging Face ecosystem
-transformers>=4.40.0
+transformers>=4.51.0
 datasets>=2.18.0
-huggingface_hub>=0.21.0
+huggingface_hub>=0.30.0
 tokenizers>=0.15.0
 safetensors>=0.4.0
 accelerate>=0.27.0

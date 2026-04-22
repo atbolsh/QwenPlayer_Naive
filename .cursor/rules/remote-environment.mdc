@@ -1,0 +1,13 @@
+---
+description: Project runs on a remote server - never inspect local packages
+alwaysApply: true
+---
+
+# Remote Execution Environment
+
+This project runs on a **remote server** (Docker container / Jupyter kernel at `/workspace/QwenPlayer_Naive/`), not locally. The local machine is just for editing code.
+
+- **Never** inspect local Python packages or `site-packages` to debug remote errors.
+- The remote environment uses Python 3.12 at `/venv/main/`.
+- If you need to check package versions or run experiments, ask the user to run commands in the remote Jupyter notebook and report back.
+- Jupyter notebooks (`.ipynb` files) are executed on the remote server.
