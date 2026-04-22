@@ -197,12 +197,15 @@ def _qa_task_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
     task_probs = all_probs[:task_total, :, :]
     task_correct = all_texts[:task_total]
     task_dpo_losses = []
+    task_accuracies = []
     for i in range(4):
         s = i * chunk_size
         e = (i + 1) * chunk_size
-        task_dpo_losses.append(get_dpo_text_loss(
+        dpo_loss_i, acc_i = get_dpo_text_loss(
             task_probs[s:e, :, :], task_correct[s:e], all_wrong[s:e], all_lens[s:e]
-        ))
+        )
+        task_dpo_losses.append(dpo_loss_i)
+        task_accuracies.append(acc_i)
 
     # CE loss for control chunk
     control_probs = all_probs[task_total:, :, :]
@@ -222,10 +225,10 @@ def _qa_task_batch(batch_size, model, optimizer=None, batch_num=0, random_order=
 
     if printing:
         print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
-              f"  {task_dpo_losses[0].item()} lrg (DPO),\n"
-              f"  {task_dpo_losses[1].item()} udg (DPO),\n"
-              f"  {task_dpo_losses[2].item()} lra (DPO),\n"
-              f"  {task_dpo_losses[3].item()} uda (DPO),\n"
+              f"  {task_dpo_losses[0].item()} lrg (DPO+SFT), acc={task_accuracies[0]:.3f}\n"
+              f"  {task_dpo_losses[1].item()} udg (DPO+SFT), acc={task_accuracies[1]:.3f}\n"
+              f"  {task_dpo_losses[2].item()} lra (DPO+SFT), acc={task_accuracies[2]:.3f}\n"
+              f"  {task_dpo_losses[3].item()} uda (DPO+SFT), acc={task_accuracies[3]:.3f}\n"
               f"  {control_loss.item()} control\n")
 
     if reset_model:

@@ -166,16 +166,19 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
     # DPO losses for task chunks
     task_total = sum(chunk_sizes[:3])
     task_dpo_losses = []
+    task_accuracies = []
     offset = 0
     wrong_offset = 0
     for i in range(3):
         cs = chunk_sizes[i]
-        task_dpo_losses.append(get_dpo_text_loss(
+        dpo_loss_i, acc_i = get_dpo_text_loss(
             all_probs[offset:offset + cs, :, :],
             all_texts[offset:offset + cs],
             all_wrong[wrong_offset:wrong_offset + cs],
             all_lens[wrong_offset:wrong_offset + cs]
-        ))
+        )
+        task_dpo_losses.append(dpo_loss_i)
+        task_accuracies.append(acc_i)
         offset += cs
         wrong_offset += cs
 
@@ -197,9 +200,9 @@ def _relposition_qa_batch(batch_size, model, optimizer=None, batch_num=0, random
 
     if printing:
         print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
-              f"  {task_dpo_losses[0].item()} willIntersectForward (DPO),\n"
-              f"  {task_dpo_losses[1].item()} whichWayTurn (DPO),\n"
-              f"  {task_dpo_losses[2].item()} whatNextMove (DPO),\n"
+              f"  {task_dpo_losses[0].item()} willIntersectForward (DPO+SFT), acc={task_accuracies[0]:.3f}\n"
+              f"  {task_dpo_losses[1].item()} whichWayTurn (DPO+SFT), acc={task_accuracies[1]:.3f}\n"
+              f"  {task_dpo_losses[2].item()} whatNextMove (DPO+SFT), acc={task_accuracies[2]:.3f}\n"
               f"  {control_loss.item()} control\n")
 
     if reset_model:

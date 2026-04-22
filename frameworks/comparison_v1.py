@@ -77,7 +77,7 @@ def _comparisonv1_task_batch(batch_size, model, optimizer=None, batch_num=0, ran
     l2 = img_criterion(task_recon, imgs2)
     img_loss = l1 + l2
     tl1 = get_text_loss(init_probs, init_texts)
-    tl2 = get_dpo_text_loss(task_probs, correct_texts, wrong_texts, prompt_lens)
+    tl2, accuracy = get_dpo_text_loss(task_probs, correct_texts, wrong_texts, prompt_lens)
     text_loss = tl1 + tl2
     loss = img_loss + (text_loss / 5000)
 
@@ -88,7 +88,8 @@ def _comparisonv1_task_batch(batch_size, model, optimizer=None, batch_num=0, ran
         model.soft_reset()
     
     if printing:
-        print(f"Total loss: {loss.item()}; that's {tl2.item()} task (DPO) and {tl1.item()} initialization text loss and {img_loss.item()} total img loss\n\n")
+        print(f"Total loss: {loss.item()}; that's {tl2.item()} task (DPO+SFT) and {tl1.item()} initialization text loss and {img_loss.item()} total img loss\n"
+              f"  correct answer accuracy: {accuracy:.3f}\n")
 
     if reset_model:
         model.reset()

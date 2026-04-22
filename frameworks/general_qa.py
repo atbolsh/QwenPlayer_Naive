@@ -218,12 +218,15 @@ def text_generator_dpo_GENERAL(settings_batch, prompts, ordered_responses_list, 
     return correct_tensor.contiguous(), wrong_tensor.contiguous(), lens_tensor
 
 
-def get_dpo_text_loss(logits, correct_texts, wrong_texts, prompt_lens, beta=0.1):
-    """Compute DPO loss from a single forward pass.
+def get_dpo_text_loss(logits, correct_texts, wrong_texts, prompt_lens, beta=0.1, sft_weight=2.0):
+    """Compute DPO + SFT loss from a single forward pass.
 
-    Uses the logits produced by forwarding correct_texts to also evaluate
-    the log-probability of wrong_texts tokens at answer positions.  No
-    reference model is used (simple PO / identity-reference DPO).
+    The DPO term pushes correct answer log-prob above wrong answer log-prob.
+    The SFT term (cross-entropy on correct tokens) maintains absolute
+    probability of the correct answer, preventing collapse to unrelated tokens.
+
+    Positions where correct and wrong targets match are excluded from the
+    DPO term (they carry no preference signal).
 
     Args:
         logits:        (batch, vocab, seq_len) model output from correct_texts
@@ -231,9 +234,12 @@ def get_dpo_text_loss(logits, correct_texts, wrong_texts, prompt_lens, beta=0.1)
         wrong_texts:   (batch, seq_len) prompt + wrong answer token ids
         prompt_lens:   (batch,) per-sample prompt lengths
         beta:          DPO temperature (higher = more aggressive)
+        sft_weight:    weight for the SFT cross-entropy term
 
     Returns:
-        Scalar DPO loss (mean over batch).
+        (loss, accuracy) tuple:
+            loss:     scalar DPO+SFT loss (mean over batch)
+            accuracy: fraction of answer positions where argmax == correct target
     """
     shifted_logits = logits[:, :, :-1]       # (batch, vocab, seq_len-1)
     correct_targets = correct_texts[:, 1:]    # (batch, seq_len-1)
@@ -253,7 +259,28 @@ def get_dpo_text_loss(logits, correct_texts, wrong_texts, prompt_lens, beta=0.1)
     pad_mask = (correct_targets != pad_id).float() * (correct_targets != 0).float()
     answer_mask = answer_mask * pad_mask
 
-    correct_answer_lp = (correct_lp * answer_mask).sum(dim=1)  # (batch,)
-    wrong_answer_lp = (wrong_lp * answer_mask).sum(dim=1)      # (batch,)
+    # DPO: exclude positions where correct and wrong targets are identical
+    diff_mask = (correct_targets != wrong_targets).float()
+    dpo_mask = answer_mask * diff_mask
 
-    return -F.logsigmoid(beta * (correct_answer_lp - wrong_answer_lp)).mean()
+    correct_answer_lp = (correct_lp * dpo_mask).sum(dim=1)  # (batch,)
+    wrong_answer_lp = (wrong_lp * dpo_mask).sum(dim=1)      # (batch,)
+
+    dpo_loss = -F.logsigmoid(beta * (correct_answer_lp - wrong_answer_lp)).mean()
+
+    # SFT cross-entropy on correct answer tokens (all answer positions)
+    vocab_size = shifted_logits.size(1)
+    ce_per_pos = F.cross_entropy(
+        shifted_logits.permute(0, 2, 1).reshape(-1, vocab_size),
+        correct_targets.reshape(-1),
+        reduction='none'
+    ).reshape(correct_targets.shape)
+    sft_loss = (ce_per_pos * answer_mask).sum(dim=1) / answer_mask.sum(dim=1).clamp(min=1)
+    sft_loss = sft_loss.mean()
+
+    # Accuracy: fraction of answer positions where model's argmax is correct
+    argmax_tokens = shifted_logits.argmax(dim=1)  # (batch, seq_len-1)
+    correct_match = ((argmax_tokens == correct_targets).float() * answer_mask).sum()
+    accuracy = correct_match / answer_mask.sum().clamp(min=1)
+
+    return dpo_loss + sft_weight * sft_loss, accuracy.item()

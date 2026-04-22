@@ -49,7 +49,7 @@ warnings.filterwarnings('ignore')
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
 # ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/fixed_frameworks_stop_token_batch52000.pth"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/dpo_and_game_solution_default_batch145000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_full_training_v3_merged_batch81000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_all_qa_tasks_focus_batch49000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_v2_batch6000.pth"
@@ -62,7 +62,7 @@ DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/fixed_frameworks_stop_token_batch52
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "dpo_and_game_solution_default"
+DEFAULT_SAVE_PREFIX = "dpo_solver_v2"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -501,7 +501,7 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
         (please_turn_batch, 8),
         (relposition_qa_batch, 8),
         (direction_names_batch, 8),
-        (primary_solver_batch, 48),
+        (primary_solver_batch, 96),
         # (zoom_task_batch, 2),
         # (imagineWithoutYou_task_batch, 2),
         # (imagineWithoutGold_task_batch, 2),

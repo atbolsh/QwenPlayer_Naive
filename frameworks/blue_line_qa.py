@@ -125,7 +125,7 @@ def _blue_line_direction_batch(batch_size, model, optimizer=None, batch_num=0, r
     # DPO loss for task chunk
     task_probs = all_probs[:chunk_sizes[0], :, :]
     task_texts = all_texts[:chunk_sizes[0]]
-    task_dpo_loss = get_dpo_text_loss(task_probs, task_texts, padded_wrong, prompt_lens)
+    task_dpo_loss, accuracy = get_dpo_text_loss(task_probs, task_texts, padded_wrong, prompt_lens)
 
     # CE loss for control chunk
     control_probs = all_probs[chunk_sizes[0]:, :, :]
@@ -144,8 +144,9 @@ def _blue_line_direction_batch(batch_size, model, optimizer=None, batch_num=0, r
 
     if printing:
         print(f"Total loss: {loss.item()} (img: {img_loss.item()}, text: {text_loss.item()}):\n"
-              f"  {task_dpo_loss.item()} blue line direction (DPO),\n"
-              f"  {control_loss.item()} control\n")
+              f"  {task_dpo_loss.item()} blue line direction (DPO+SFT),\n"
+              f"  {control_loss.item()} control\n"
+              f"  correct answer accuracy: {accuracy:.3f}\n")
 
     if reset_model:
         model.reset()

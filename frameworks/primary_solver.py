@@ -121,8 +121,8 @@ def primary_solver_data(batch_size):
     return imgs, correct_tensor.contiguous(), wrong_tensor.contiguous(), loss_positions
 
 
-def get_primary_solver_dpo_loss(logits, correct_texts, wrong_texts, loss_positions, beta=0.1):
-    """DPO loss computed on a single token position per sample.
+def get_primary_solver_dpo_loss(logits, correct_texts, wrong_texts, loss_positions, beta=0.1, sft_weight=2.0):
+    """DPO + SFT loss computed on a single token position per sample.
 
     Args:
         logits:         (batch, vocab, seq_len) model output from correct_texts
@@ -130,26 +130,40 @@ def get_primary_solver_dpo_loss(logits, correct_texts, wrong_texts, loss_positio
         wrong_texts:    (batch, seq_len) token ids with wrong next move
         loss_positions: (batch,) the position of the target token in the sequence
         beta:           DPO temperature
+        sft_weight:     weight for the SFT cross-entropy term
+
+    Returns:
+        (loss, accuracy) tuple
     """
     batch_size = logits.size(0)
+    batch_idx = torch.arange(batch_size, device=logits.device)
 
-    # Shifted logits: logits[:, :, t] predicts token at position t+1
-    # So to get the prediction *for* position p, we read logits[:, :, p-1]
     pred_positions = loss_positions - 1  # (batch,)
 
     log_probs = F.log_softmax(logits, dim=1)  # (batch, vocab, seq_len)
 
-    correct_targets = correct_texts[torch.arange(batch_size, device=logits.device), loss_positions]  # (batch,)
-    wrong_targets = wrong_texts[torch.arange(batch_size, device=logits.device), loss_positions]      # (batch,)
+    correct_targets = correct_texts[batch_idx, loss_positions]  # (batch,)
+    wrong_targets = wrong_texts[batch_idx, loss_positions]      # (batch,)
 
-    # Gather log-probs at the prediction position for correct and wrong tokens
-    # log_probs[:, :, pred_pos] -> (batch, vocab) per sample
-    pred_lp = log_probs[torch.arange(batch_size, device=logits.device), :, pred_positions]  # (batch, vocab)
+    pred_lp = log_probs[batch_idx, :, pred_positions]  # (batch, vocab)
 
-    correct_lp = pred_lp[torch.arange(batch_size, device=logits.device), correct_targets]  # (batch,)
-    wrong_lp = pred_lp[torch.arange(batch_size, device=logits.device), wrong_targets]      # (batch,)
+    correct_lp = pred_lp[batch_idx, correct_targets]  # (batch,)
+    wrong_lp = pred_lp[batch_idx, wrong_targets]      # (batch,)
 
-    return -F.logsigmoid(beta * (correct_lp - wrong_lp)).mean()
+    # DPO: mask out samples where correct == wrong (no preference signal)
+    diff_mask = (correct_targets != wrong_targets).float()
+    dpo_per_sample = -F.logsigmoid(beta * (correct_lp - wrong_lp))
+    dpo_loss = (dpo_per_sample * diff_mask).sum() / diff_mask.sum().clamp(min=1)
+
+    # SFT cross-entropy at the prediction position
+    pred_logits = logits[batch_idx, :, pred_positions]  # (batch, vocab)
+    sft_loss = F.cross_entropy(pred_logits, correct_targets)
+
+    # Accuracy: fraction of samples where model's argmax is correct
+    argmax_tokens = pred_logits.argmax(dim=1)  # (batch,)
+    accuracy = (argmax_tokens == correct_targets).float().mean()
+
+    return dpo_loss + sft_weight * sft_loss, accuracy.item()
 
 
 ########
@@ -173,7 +187,7 @@ def _primary_solver_batch(batch_size, model, optimizer=None, batch_num=0, random
     task_probs, task_recon = model_forward_with_tokens(model, correct_texts, imgs, ret_imgs=True)
 
     img_loss = img_criterion(task_recon, imgs)
-    dpo_loss = get_primary_solver_dpo_loss(task_probs, correct_texts, wrong_texts, loss_positions)
+    dpo_loss, accuracy = get_primary_solver_dpo_loss(task_probs, correct_texts, wrong_texts, loss_positions)
     loss = img_loss + (dpo_loss / 5000)
 
     if training:
@@ -183,7 +197,8 @@ def _primary_solver_batch(batch_size, model, optimizer=None, batch_num=0, random
         model.soft_reset()
 
     if printing:
-        print(f"Total loss: {loss.item()}; that's {dpo_loss.item()} task (DPO) and {img_loss.item()} img loss\n")
+        print(f"Total loss: {loss.item()}; that's {dpo_loss.item()} task (DPO+SFT) and {img_loss.item()} img loss\n"
+              f"  correct answer accuracy: {accuracy:.3f}\n")
 
     if reset_model:
         model.reset()
