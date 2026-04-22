@@ -64,7 +64,17 @@ def primary_solver_data(batch_size):
     for i in range(batch_size):
         trace = trace_forward(S[i])
         trace_len = len(trace)
-        cut = random.randint(1, min(MAX_MOVE_PREFIX, trace_len))
+        max_cut = min(MAX_MOVE_PREFIX, trace_len)
+        # 20% chance: prompt alone (cut=1, predict first action)
+        # 20% chance: full trace (cut=trace_len, predict <|im_end|>)
+        # 60% chance: uniform over 1..max_cut
+        r = random.random()
+        if r < 0.2:
+            cut = 1
+        elif r < 0.4:
+            cut = trace_len
+        else:
+            cut = random.randint(1, max_cut)
         is_full = (cut == trace_len)
 
         # Advance game to state right before the last kept move
