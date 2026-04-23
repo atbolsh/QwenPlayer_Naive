@@ -39,6 +39,7 @@ from .zoom import zoom_task_batch, zoomAgent_task_batch, zoomGold_task_batch, zo
 from .comparison_v1 import comparisonv1_task_batch
 from .complex_loss_v1 import complex_loss_batch
 from .primary_solver import primary_solver_batch
+from .secondary_solver import secondary_solver_batch
 
 # Imagination frameworks
 from .imagine_without_you import imagineWithoutYou_task_batch
@@ -81,6 +82,7 @@ __all__ = [
     'comparisonv1_task_batch',
     'complex_loss_batch',
     'primary_solver_batch',
+    'secondary_solver_batch',
     'imagineWithoutYou_task_batch',
     'imagineWithoutGold_task_batch',
     'imagineWithoutWalls_task_batch',

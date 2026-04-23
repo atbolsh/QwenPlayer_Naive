@@ -36,6 +36,7 @@ from frameworks import (
     imagineFacingGold_task_batch, imagineCloser2Gold_task_batch,
     imagineAfterMove_task_batch,
     primary_solver_batch,
+    secondary_solver_batch,
 )
 
 # Suppress warnings for cleaner output
@@ -49,7 +50,7 @@ warnings.filterwarnings('ignore')
 #       at import time (FRANKENSTEIN_CHECKPOINT_BF16 variable).
 #       This override is applied via --load_checkpoint argument.
 # ============================================================
-DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/dpo_and_game_solution_default_batch145000.pth"
+DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/dpo_solver_v2_batch36000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_full_training_v3_merged_batch81000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_all_qa_tasks_focus_batch49000.pth"
 #DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/qwen_agent_mem_canvas_weights_v2_batch6000.pth"
@@ -62,7 +63,7 @@ DEFAULT_INIT_CHECKPOINT = "brain_checkpoints/dpo_and_game_solution_default_batch
 # ============================================================
 # EASILY EDITABLE: Save prefix for checkpoints and CSV
 # ============================================================
-DEFAULT_SAVE_PREFIX = "dpo_solver_v2"
+DEFAULT_SAVE_PREFIX = "dpo_solver_v3"
 
 # Directories
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "brain_checkpoints")
@@ -490,6 +491,7 @@ FRAMEWORK_DEMO_INFO = {
     imagineCloser2Gold_task_batch: ("imagine_closer_to_gold", "Show me closer to the gold."),
     imagineAfterMove_task_batch: ("imagine_after_move", "Show me after moving."),
     primary_solver_batch: ("primary_solver", "Solve"),
+    secondary_solver_batch: ("secondary_solver", "Solve"),
 }
 
 
@@ -511,7 +513,8 @@ def get_default_frameworks() -> List[Tuple[Callable, int]]:
         (please_turn_batch, 8),
         (relposition_qa_batch, 8),
         (direction_names_batch, 8),
-        (primary_solver_batch, 96),
+        (primary_solver_batch, 32),
+        (secondary_solver_batch, 64),
         # (zoom_task_batch, 2),
         # (imagineWithoutYou_task_batch, 2),
         # (imagineWithoutGold_task_batch, 2),
